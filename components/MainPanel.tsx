@@ -52,9 +52,10 @@ interface CanvasItemProps {
   onDelete: (id: string) => void;
   onEditDiagram: (element: CanvasElement) => void;
   theme: 'light' | 'dark';
+  isDraggable: boolean;
 }
 
-const CanvasItem: React.FC<CanvasItemProps> = ({ element, onUpdate, onDelete, onEditDiagram, theme }) => {
+const CanvasItem: React.FC<CanvasItemProps> = ({ element, onUpdate, onDelete, onEditDiagram, theme, isDraggable }) => {
     const nodeRef = useRef(null);
     const quillRef = useRef<ReactQuill>(null);
 
@@ -99,34 +100,49 @@ const CanvasItem: React.FC<CanvasItemProps> = ({ element, onUpdate, onDelete, on
         }
     }
 
-    return (
-        <Draggable
-            nodeRef={nodeRef}
-            position={element.position}
-            onStop={(_, data) => onUpdate(element.id, { position: { x: data.x, y: data.y } })}
-            handle=".drag-handle"
-            cancel=".ql-editor, .no-drag"
+    const ResizableContent = (
+        <ResizableBox
+            width={typeof element.size.width === 'number' ? element.size.width : 400}
+            height={typeof element.size.height === 'number' ? element.size.height : 300}
+            onResizeStop={(_, data) => onUpdate(element.id, { size: data.size })}
+            minConstraints={[200, 150]}
+            className="group shadow-lg rounded-md overflow-hidden flex flex-col bg-white dark:bg-gray-700"
         >
-            <ResizableBox
-                width={typeof element.size.width === 'number' ? element.size.width : 400}
-                height={typeof element.size.height === 'number' ? element.size.height : 300}
-                onResizeStop={(_, data) => onUpdate(element.id, { size: data.size })}
-                minConstraints={[200, 150]}
-                className="absolute group shadow-lg rounded-md overflow-hidden flex flex-col bg-white dark:bg-gray-700"
-            >
-                <div ref={nodeRef} className="w-full h-full flex flex-col">
-                    <div className="drag-handle h-6 w-full bg-black bg-opacity-20 cursor-move flex items-center justify-center relative">
-                        <div className="w-8 h-1 bg-gray-500 rounded-full" />
-                            <button onClick={() => onDelete(element.id)} className="absolute top-1/2 right-2 -translate-y-1/2 p-0.5 rounded-full bg-gray-800 bg-opacity-50 hover:bg-opacity-80 text-gray-300 hover:text-white transition-opacity opacity-0 group-hover:opacity-100" title="Delete">
-                            <XIcon className="w-3 h-3" />
-                        </button>
-                    </div>
-                    <div className="flex-1 w-full h-full overflow-auto">
-                        {renderElement()}
-                    </div>
+            <div className="w-full h-full flex flex-col">
+                <div className={`${isDraggable ? 'drag-handle cursor-move' : ''} h-6 w-full bg-black bg-opacity-20 flex items-center justify-center relative`}>
+                    <div className="w-8 h-1 bg-gray-500 rounded-full" />
+                        <button onClick={() => onDelete(element.id)} className="absolute top-1/2 right-2 -translate-y-1/2 p-0.5 rounded-full bg-gray-800 bg-opacity-50 hover:bg-opacity-80 text-gray-300 hover:text-white transition-opacity opacity-0 group-hover:opacity-100" title="Delete">
+                        <XIcon className="w-3 h-3" />
+                    </button>
                 </div>
-            </ResizableBox>
-        </Draggable>
+                <div className="flex-1 w-full h-full overflow-auto">
+                    {renderElement()}
+                </div>
+            </div>
+        </ResizableBox>
+    );
+
+    if (isDraggable) {
+        return (
+            <Draggable
+                nodeRef={nodeRef}
+                position={element.position}
+                onStop={(_, data) => onUpdate(element.id, { position: { x: data.x, y: data.y } })}
+                handle=".drag-handle"
+                cancel=".ql-editor, .no-drag, .react-resizable-handle"
+            >
+                <div ref={nodeRef} className="absolute">
+                    {ResizableContent}
+                </div>
+            </Draggable>
+        );
+    }
+    
+    // Static (non-draggable) element
+    return (
+         <div className="absolute" style={{ left: element.position.x, top: element.position.y }}>
+            {ResizableContent}
+        </div>
     );
 };
 
@@ -855,7 +871,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
                         <button onClick={handleGenerateTextContent} disabled={!isApiKeyReady} className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50">Generate Notes</button>
                      </div>
                 )}
-                {lecture.canvasState?.map(el => <CanvasItem key={el.id} element={el} onUpdate={handleElementUpdate} onDelete={handleDeleteElement} onEditDiagram={handleOpenModalForEdit} theme={theme} />)}
+                {lecture.canvasState?.map((el, index) => <CanvasItem key={el.id} element={el} onUpdate={handleElementUpdate} onDelete={handleDeleteElement} onEditDiagram={handleOpenModalForEdit} theme={theme} isDraggable={index > 0 || el.type !== 'note'} />)}
             </div>
         );
     }
