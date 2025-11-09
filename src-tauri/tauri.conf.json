@@ -41,8 +41,8 @@
     },
     "bundle": {
       "active": true,
-      "category": "DeveloperTool",
-      "copyright": "",
+      "category": "Productivity",
+      "copyright": "Copyright © 2024 IntelliNote. All rights reserved.",
       "deb": {
         "depends": []
       },
@@ -54,17 +54,42 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "identifier": "com.intellinote.dev",
-      "longDescription": "",
+      "identifier": "com.intellinote.app",
+      "longDescription": "An intelligent note-taking application that listens to lectures in real-time, organizes notes, and generates study materials to enhance your learning experience.",
       "macOS": {
         "entitlements": null,
         "exceptionDomain": "",
         "frameworks": [],
         "providerShortName": null,
-        "signingIdentity": null
+        "signingIdentity": null,
+        "dmg": {
+          "windowPosition": {
+            "x": 418,
+            "y": 272
+          },
+          "windowSize": {
+            "width": 660,
+            "height": 400
+          },
+          "backgroundColor": "#f2f2f7",
+          "contents": [
+            {
+              "x": 468,
+              "y": 180,
+              "type": "link",
+              "path": "/Applications"
+            },
+            {
+              "x": 192,
+              "y": 180,
+              "type": "file",
+              "path": "IntelliNote.app"
+            }
+          ]
+        }
       },
       "resources": [],
-      "shortDescription": "",
+      "shortDescription": "An AI-powered note-taking assistant for lectures.",
       "targets": "all",
       "windows": {
         "certificateThumbprint": null,

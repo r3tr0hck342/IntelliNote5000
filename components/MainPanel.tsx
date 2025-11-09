@@ -117,12 +117,12 @@ const CanvasItem: React.FC<CanvasItemProps> = ({ element, onUpdate, onDelete, on
                 <div ref={nodeRef} className="w-full h-full flex flex-col">
                     <div className="drag-handle h-6 w-full bg-black bg-opacity-20 cursor-move flex items-center justify-center relative">
                         <div className="w-8 h-1 bg-gray-500 rounded-full" />
-                         <button onClick={() => onDelete(element.id)} className="absolute top-1/2 right-2 -translate-y-1/2 p-0.5 rounded-full bg-gray-800 bg-opacity-50 hover:bg-opacity-80 text-gray-300 hover:text-white transition-opacity opacity-0 group-hover:opacity-100" title="Delete">
+                            <button onClick={() => onDelete(element.id)} className="absolute top-1/2 right-2 -translate-y-1/2 p-0.5 rounded-full bg-gray-800 bg-opacity-50 hover:bg-opacity-80 text-gray-300 hover:text-white transition-opacity opacity-0 group-hover:opacity-100" title="Delete">
                             <XIcon className="w-3 h-3" />
                         </button>
                     </div>
                     <div className="flex-1 w-full h-full overflow-auto">
-                      {renderElement()}
+                        {renderElement()}
                     </div>
                 </div>
             </ResizableBox>
