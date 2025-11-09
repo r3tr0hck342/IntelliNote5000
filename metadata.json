@@ -1,0 +1,7 @@
+{
+  "name": "IntelliNote - AI Lecture Assistant",
+  "description": "An intelligent note-taking application that listens to lectures in real-time, organizes notes, and generates study materials to enhance your learning experience.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
