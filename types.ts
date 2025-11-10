@@ -42,8 +42,6 @@ export interface Lecture {
   date: string;
   transcript: TranscriptSegment[];
   handouts: Handout[];
-  summary: string | null;
-  summaryStatus?: 'generating' | 'error' | 'success';
   organizedNotes: string | null; // This will now store HTML
   organizedNotesStatus?: 'generating' | 'error' | 'success';
   canvasState: CanvasElement[] | null;
@@ -57,7 +55,6 @@ export interface Lecture {
 }
 
 export enum GenerationMode {
-  Summary = 'summary',
   Notes = 'notes',
   StudyGuide = 'guide',
   TestQuestions = 'questions',

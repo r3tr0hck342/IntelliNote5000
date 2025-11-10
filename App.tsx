@@ -34,11 +34,7 @@ const getInitialTheme = (): 'light' | 'dark' => {
   if (storedTheme === 'light' || storedTheme === 'dark') {
     return storedTheme;
   }
-  // Otherwise, check for user's system preference as a better default
-  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-    return 'light';
-  }
-  // Default to dark
+  // Default to dark for new users
   return 'dark';
 };
 
@@ -127,10 +123,6 @@ const App: React.FC = () => {
   };
 
   const handleNewLiveLecture = () => {
-    if (!isApiKeyReady) {
-      setIsSettingsModalOpen(true);
-      return;
-    }
     setCurrentView(AppView.Live);
     setActiveLectureId(null);
     if(isMobile) setIsSidebarOpen(false);
@@ -141,17 +133,9 @@ const App: React.FC = () => {
   }, []);
 
   const triggerAutoGeneration = useCallback(async (lecture: Lecture) => {
-    // Generate Summary
-    try {
-        const summary = await processTranscript(lecture.transcript, GenerationMode.Summary, lecture.handouts, true);
-        updateLecture(lecture.id, { summary, summaryStatus: 'success' });
-    } catch (e) {
-        console.error("Failed to auto-generate summary:", e);
-        updateLecture(lecture.id, { summaryStatus: 'error' });
-    }
-
     // Generate Organized Notes
     try {
+        // Use intelligence mode 'false' for default auto-generation
         const notes = await processTranscript(lecture.transcript, GenerationMode.Notes, lecture.handouts, false);
         updateLecture(lecture.id, { organizedNotes: notes, canvasState: null, organizedNotesStatus: 'success' });
     } catch (e) {
@@ -177,8 +161,6 @@ const App: React.FC = () => {
       date: now.toLocaleString(),
       transcript: transcript,
       handouts: [],
-      summary: null,
-      summaryStatus: 'generating',
       organizedNotes: null,
       organizedNotesStatus: 'generating',
       canvasState: null,
@@ -203,10 +185,6 @@ const App: React.FC = () => {
   };
 
   const handleCreateLectureFromFile = useCallback((data: { title: string; transcript: string; handouts: Handout[] }) => {
-    if (!isApiKeyReady) {
-      setIsSettingsModalOpen(true);
-      return;
-    }
     const now = new Date();
     // Convert flat transcript string to TranscriptSegment array
     const transcriptSegments: TranscriptSegment[] = data.transcript.split('\n').map(text => ({ text, startTime: 0 }));
@@ -217,8 +195,6 @@ const App: React.FC = () => {
         date: now.toLocaleString(),
         transcript: transcriptSegments,
         handouts: data.handouts,
-        summary: null,
-        summaryStatus: 'generating',
         organizedNotes: null,
         organizedNotesStatus: 'generating',
         canvasState: null,
@@ -235,7 +211,7 @@ const App: React.FC = () => {
     setCurrentView(AppView.Note);
     setIsUploadModalOpen(false);
     triggerAutoGeneration(newLecture);
-  }, [triggerAutoGeneration, isApiKeyReady]);
+  }, [triggerAutoGeneration]);
   
   const handleDeleteLecture = useCallback((idToDelete: string) => {
     if (window.confirm('Are you sure you want to permanently delete this lecture and all its data?')) {

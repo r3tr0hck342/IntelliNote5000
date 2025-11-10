@@ -172,7 +172,7 @@ const FlashcardViewer: React.FC<{ cards: Flashcard[] }> = ({ cards }) => {
 
     const handlePrev = () => {
         if (currentIndex > 0) {
-            setCurrentIndex(currentIndex + 1);
+            setCurrentIndex(currentIndex - 1);
         }
     };
 
@@ -217,14 +217,13 @@ interface MainPanelProps {
   theme: 'light' | 'dark';
 }
 
-type ActiveTab = 'transcript' | 'summary' | 'notes' | 'guide' | 'questions' | 'flashcards' | 'handouts' | 'chat';
+type ActiveTab = 'transcript' | 'notes' | 'guide' | 'questions' | 'flashcards' | 'handouts' | 'chat';
 
 const TABS: { id: ActiveTab; label: string; icon: React.FC<{className?: string}> }[] = [
     { id: 'transcript', label: 'Transcript', icon: FileTextIcon },
     { id: 'handouts', label: 'Handouts', icon: PaperclipIcon },
     { id: 'notes', label: 'Notes', icon: NoteIcon },
     { id: 'chat', label: 'Chat', icon: ChatBubbleIcon },
-    { id: 'summary', label: 'Summary', icon: FileTextIcon },
     { id: 'guide', label: 'Study Guide', icon: BookOpenIcon },
     { id: 'questions', label: 'Test Questions', icon: QuestionMarkCircleIcon },
     { id: 'flashcards', label: 'Flashcards', icon: LayersIcon },
@@ -242,7 +241,7 @@ const ApiKeyBanner = ({ onOpenSettings }: { onOpenSettings: () => void; }) => (
 
 
 const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile, onToggleSidebar, isApiKeyReady, onOpenSettings, theme }) => {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('summary');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
   const [isLoading, setIsLoading] = useState(false);
   
   // Diagram Modal State
@@ -288,11 +287,11 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
   const [editValue, setEditValue] = useState('');
   
   // Advanced generation state
-  const [useThinkingMode, setUseThinkingMode] = useState(false);
+  const [useIntelligenceMode, setUseIntelligenceMode] = useState(false);
 
   useEffect(() => {
-    // Reset to summary tab when lecture changes
-    setActiveTab('summary');
+    // Reset to notes tab when lecture changes
+    setActiveTab('notes');
     setEditedTranscript(lecture.transcript.map(t => t.text).join('\n'));
     setSaveStatus('saved');
     // Reset editing state on lecture change
@@ -388,7 +387,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     if (!diagramPrompt.trim() || !isApiKeyReady) return;
     setIsDiagramLoading(true);
     try {
-        const mermaidSyntax = await generateDiagram(diagramPrompt, diagramType, advancedConfig, lecture.transcript, lecture.handouts, useThinkingMode);
+        const mermaidSyntax = await generateDiagram(diagramPrompt, diagramType, advancedConfig, lecture.transcript, lecture.handouts, useIntelligenceMode);
         const diagramData: Partial<CanvasElement> = {
             content: mermaidSyntax,
             prompt: diagramPrompt,
@@ -420,7 +419,6 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
 
   const currentContent = useMemo(() => {
     switch (activeTab) {
-      case 'summary': return lecture.summary;
       case 'guide': return lecture.studyGuide;
       case 'questions': return lecture.testQuestions;
       default: return null;
@@ -430,10 +428,9 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
   const handleGenerateTextContent = async () => {
     if (!isApiKeyReady) return;
     let mode: GenerationMode;
-    let statusKey: 'summaryStatus' | 'organizedNotesStatus' | undefined;
+    let statusKey: 'organizedNotesStatus' | undefined;
 
     switch (activeTab) {
-      case 'summary': mode = GenerationMode.Summary; statusKey = 'summaryStatus'; break;
       case 'notes': mode = GenerationMode.Notes; statusKey = 'organizedNotesStatus'; break;
       case 'guide': mode = GenerationMode.StudyGuide; break;
       case 'questions': mode = GenerationMode.TestQuestions; break;
@@ -446,12 +443,10 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     }
 
     try {
-      const shouldProcessWithAdvancedMode = (activeTab === 'summary') || useThinkingMode;
-      const result = await processTranscript(lecture.transcript, mode, lecture.handouts, shouldProcessWithAdvancedMode);
+      const result = await processTranscript(lecture.transcript, mode, lecture.handouts, useIntelligenceMode);
       
       const updates: Partial<Lecture> = statusKey ? { [statusKey]: 'success' } : {};
       switch (activeTab) {
-        case 'summary': updates.summary = result; break;
         case 'notes': updates.organizedNotes = result; updates.canvasState = null; break;
         case 'guide': updates.studyGuide = result; break;
         case 'questions': updates.testQuestions = result; break;
@@ -471,7 +466,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
       if (!isApiKeyReady) return;
       setIsLoading(true);
       try {
-          const cards = await generateFlashcards(lecture.transcript, lecture.handouts, flashcardCount, useThinkingMode);
+          const cards = await generateFlashcards(lecture.transcript, lecture.handouts, flashcardCount, useIntelligenceMode);
           updateLecture(lecture.id, { flashcards: cards });
       } catch (error) {
           console.error(error);
@@ -484,7 +479,6 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     const canExport = useMemo(() => {
         if (isLoading) return false;
         switch (activeTab) {
-            case 'summary':
             case 'guide':
             case 'questions':
                 return !!currentContent;
@@ -536,7 +530,6 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
         if (!textContent) return;
         content = textContent;
         switch (activeTab) {
-            case 'summary': filenameSuffix = 'Summary'; break;
             case 'guide': filenameSuffix = 'Study_Guide'; break;
             case 'questions': filenameSuffix = 'Test_Questions'; break;
             default: return;
@@ -627,7 +620,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     setIsChatLoading(true);
 
     try {
-        const stream = await getChatResponseStream(lecture.chatHistory, messageToSend, lecture.transcript, lecture.handouts, useSearchGrounding, useThinkingMode);
+        const stream = await getChatResponseStream(lecture.chatHistory, messageToSend, lecture.transcript, lecture.handouts, useSearchGrounding, useIntelligenceMode);
         let currentResponse = '';
         let sources: GroundingSource[] = [];
 
@@ -746,7 +739,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     }
 
     try {
-        const result = await editTranscriptWithAi(textToEdit, mode, prompt);
+        const result = await editTranscriptWithAi(textToEdit, mode, useIntelligenceMode, prompt);
         
         if (mode === AiEditMode.Topics) {
             setIdentifiedTopics(result);
@@ -770,7 +763,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
         setIsAiEditing(null);
         setCustomAiPrompt('');
     }
-  }, [editedTranscript, isApiKeyReady]);
+  }, [editedTranscript, isApiKeyReady, useIntelligenceMode]);
 
 
   useEffect(() => {
@@ -1027,18 +1020,18 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
                                     Search web for up-to-date info
                                 </label>
                             </div>
-                            <div className="flex items-center space-x-2">
+                            <div className="flex items-center space-x-2" title={!isApiKeyReady ? "Connect your API key in settings to enable" : "Uses more powerful AI for higher quality results"}>
                                 <input
-                                    id="chat-thinking-mode-toggle"
+                                    id="chat-intelligence-mode-toggle"
                                     type="checkbox"
-                                    checked={useThinkingMode}
-                                    onChange={(e) => setUseThinkingMode(e.target.checked)}
-                                    className="h-4 w-4 rounded border-gray-400 dark:border-gray-600 bg-gray-100 dark:bg-gray-900 text-indigo-600 focus:ring-indigo-500"
+                                    checked={useIntelligenceMode}
+                                    onChange={(e) => setUseIntelligenceMode(e.target.checked)}
+                                    className="h-4 w-4 rounded border-gray-400 dark:border-gray-600 bg-gray-100 dark:bg-gray-900 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed"
                                     disabled={!isApiKeyReady}
                                 />
-                                <label htmlFor="chat-thinking-mode-toggle" className={`text-sm text-gray-600 dark:text-gray-400 flex items-center ${!isApiKeyReady ? 'opacity-50' : ''}`}>
+                                <label htmlFor="chat-intelligence-mode-toggle" className={`text-sm text-gray-600 dark:text-gray-400 flex items-center ${!isApiKeyReady ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                                     <BrainIcon className="w-4 h-4 mr-1 text-indigo-500 dark:text-indigo-400" />
-                                    Advanced Mode
+                                    Intelligence Mode
                                 </label>
                             </div>
                         </div>
@@ -1048,19 +1041,11 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
         )
     }
 
-    if (activeTab === 'summary' && lecture.summaryStatus === 'generating') return loadingState('Generating Summary...');
-    if (activeTab === 'summary' && lecture.summaryStatus === 'error') return errorState('An error occurred while generating the summary.', handleGenerateTextContent);
-    
     if (isLoading) return loadingState('Generating...');
     
     if (!currentContent) {
       let placeholder = '';
-      let isAdvancedByDefault = false;
       switch (activeTab) {
-        case 'summary': 
-            placeholder = 'Generate a detailed, high-quality summary of the transcript using Advanced Mode.'; 
-            isAdvancedByDefault = true;
-            break;
         case 'guide': placeholder = 'Generate a study guide from the transcript.'; break;
         case 'questions': placeholder = 'Generate potential test questions from the transcript.'; break;
       }
@@ -1072,8 +1057,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
             disabled={isLoading || !isApiKeyReady} 
             className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:bg-indigo-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 focus:ring-indigo-500"
           >
-            {isAdvancedByDefault && <BrainIcon className="w-5 h-5 mr-2" />}
-            {isAdvancedByDefault ? 'Generate Detailed Summary' : 'Generate'}
+            Generate
           </button>
         </div>
       );
@@ -1189,18 +1173,18 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
                 </div>
             </div>
             <div className="flex items-center space-x-2 md:space-x-4 flex-shrink-0">
-                 <div className="hidden md:flex items-center space-x-2">
+                 <div className="hidden md:flex items-center space-x-2" title={!isApiKeyReady ? "Connect your API key in settings to enable" : "Uses more powerful AI for higher quality results"}>
                     <input
-                        id="thinking-mode-toggle"
+                        id="intelligence-mode-toggle"
                         type="checkbox"
-                        checked={useThinkingMode}
-                        onChange={(e) => setUseThinkingMode(e.target.checked)}
-                        className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-900 text-indigo-600 focus:ring-indigo-500"
+                        checked={useIntelligenceMode}
+                        onChange={(e) => setUseIntelligenceMode(e.target.checked)}
+                        className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-900 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed"
                         disabled={!isApiKeyReady}
                     />
-                    <label htmlFor="thinking-mode-toggle" className={`text-sm text-gray-700 dark:text-gray-300 flex items-center ${!isApiKeyReady ? 'opacity-50' : ''}`}>
+                    <label htmlFor="intelligence-mode-toggle" className={`text-sm text-gray-700 dark:text-gray-300 flex items-center ${!isApiKeyReady ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                         <BrainIcon className="w-5 h-5 mr-1 text-indigo-500 dark:text-indigo-400" />
-                        Advanced Mode
+                        Intelligence Mode
                     </label>
                 </div>
                 <button onClick={handleExport} disabled={!canExport} className="flex items-center px-3 py-2 text-sm font-medium text-gray-800 dark:text-white bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed">

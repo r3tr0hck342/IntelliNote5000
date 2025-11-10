@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, Chat } from "@google/genai";
+import { GoogleGenAI, Type, Chat, GenerateContentResponse } from "@google/genai";
 import { GenerationMode, Flashcard, Handout, TranscriptSegment, ChatMessage, AiEditMode } from '../types';
 
 // Use the pre-configured process.env.API_KEY
@@ -27,14 +27,6 @@ const formatContext = (transcript: TranscriptSegment[], handouts: Handout[]): st
 
 const getPromptForMode = (mode: GenerationMode, context: string): string => {
     switch (mode) {
-        case GenerationMode.Summary:
-            return `You are an expert summarizer. Your task is to synthesize information from BOTH the lecture transcript and any supplementary handouts provided. Generate a detailed, multi-paragraph summary that covers all the main topics discussed. Structure your summary with the following sections in Markdown:
-1.  **Overview**: A brief, one-paragraph introduction to the lecture's core subject.
-2.  **Key Concepts**: A bulleted list of the most important terms, definitions, and concepts presented.
-3.  **Detailed Breakdown**: A more in-depth explanation of the main arguments and findings, organized by topic.
-4.  **Conclusion**: A concluding paragraph that summarizes the main takeaways and implications.
-
-${context}`;
         case GenerationMode.Notes:
             return `You are an expert note-taker. Your task is to create a single, cohesive set of notes by integrating information from BOTH the lecture transcript and any supplementary handouts. Organize the combined information into a structured, easy-to-read document using semantic HTML.
 - Your entire response MUST be valid HTML. Do not include Markdown.
@@ -62,19 +54,20 @@ ${context}`;
     }
 };
 
-export const processTranscript = async (transcript: TranscriptSegment[], mode: GenerationMode, handouts: Handout[], useThinkingMode: boolean): Promise<string> => {
+export const processTranscript = async (transcript: TranscriptSegment[], mode: GenerationMode, handouts: Handout[], useIntelligenceMode: boolean): Promise<string> => {
     try {
         const ai = getAi();
         const context = formatContext(transcript, handouts);
         const prompt = getPromptForMode(mode, context);
         
+        const model = useIntelligenceMode ? 'gemini-2.5-pro' : 'gemini-flash-lite-latest';
         const config: any = {};
-        if (useThinkingMode) {
+        if (useIntelligenceMode) {
             config.thinkingConfig = { thinkingBudget: 32768 };
         }
         
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
+            model,
             contents: prompt,
             config: Object.keys(config).length > 0 ? config : undefined,
         });
@@ -85,14 +78,15 @@ export const processTranscript = async (transcript: TranscriptSegment[], mode: G
     }
 };
 
-export const generateFlashcards = async (transcript: TranscriptSegment[], handouts: Handout[], count: number = 10, useThinkingMode: boolean): Promise<Flashcard[]> => {
+export const generateFlashcards = async (transcript: TranscriptSegment[], handouts: Handout[], count: number = 10, useIntelligenceMode: boolean): Promise<Flashcard[]> => {
     try {
         const ai = getAi();
         const context = formatContext(transcript, handouts);
         const prompt = `Based on the combined information from the following lecture transcript and supplementary handouts, identify the most important key terms, concepts, and facts. Create flashcards for concepts found in either the transcript or the handouts. For each, create a flashcard with a 'front' (the term/question) and a 'back' (the definition/answer). Return exactly ${count} flashcards if the content allows, otherwise return as many as possible up to that number.
 
 ${context}`;
-
+        
+        const model = useIntelligenceMode ? 'gemini-2.5-pro' : 'gemini-flash-lite-latest';
         const config: any = {
             responseMimeType: "application/json",
             responseSchema: {
@@ -114,12 +108,12 @@ ${context}`;
             }
         };
 
-        if (useThinkingMode) {
+        if (useIntelligenceMode) {
             config.thinkingConfig = { thinkingBudget: 32768 };
         }
 
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
+            model,
             contents: prompt,
             config: config
         });
@@ -135,7 +129,7 @@ ${context}`;
 };
 
 
-export const generateDiagram = async (prompt: string, diagramType: string, advancedConfig: string, transcript: TranscriptSegment[], handouts: Handout[], useThinkingMode: boolean): Promise<string> => {
+export const generateDiagram = async (prompt: string, diagramType: string, advancedConfig: string, transcript: TranscriptSegment[], handouts: Handout[], useIntelligenceMode: boolean): Promise<string> => {
     try {
         const ai = getAi();
         const context = formatContext(transcript, handouts);
@@ -152,21 +146,23 @@ Lecture Context:
 ---
 ${context}
 ---`;
+        const model = useIntelligenceMode ? 'gemini-2.5-pro' : 'gemini-flash-lite-latest';
         const config: any = {};
-        if (useThinkingMode) {
+        if (useIntelligenceMode) {
             config.thinkingConfig = { thinkingBudget: 32768 };
         }
-
+        
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
+            model,
             contents: diagramPrompt,
             config: Object.keys(config).length > 0 ? config : undefined,
         });
-        
-        return response.text.trim();
+
+        return response.text;
+
     } catch (error) {
         console.error("Error generating diagram:", error);
-        return `graph TD;\nA["An error occurred while generating the diagram."];`;
+        return `graph TD;\n  A["An error occurred while generating the diagram."];`;
     }
 };
 
@@ -174,196 +170,155 @@ export const generateTags = async (transcript: TranscriptSegment[], handouts: Ha
     try {
         const ai = getAi();
         const context = formatContext(transcript, handouts);
-        const prompt = `You are an expert at information retrieval and categorization. Analyze the following lecture context (transcript and handouts) and identify the most relevant and concise tags. These tags should represent the main topics, concepts, or themes.
-- Return between 3 to 5 tags.
-- Each tag should be 1-3 words long.
-- The tags should be distinct and cover different aspects of the content.
+        const prompt = `Based on the following lecture transcript and handouts, identify 5 to 7 key topics or themes. Return these as a JSON array of strings.
+        
+Context:
+---
+${context}
+---`;
 
-Based on the context, provide a list of tags.
-
-${context}`;
-
-        const config = {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                    tags: {
-                        type: Type.ARRAY,
-                        description: "A list of 3-5 relevant tags.",
-                        items: {
-                            type: Type.STRING
-                        }
-                    }
-                },
-                required: ['tags']
-            }
-        };
-
+        const model = 'gemini-flash-lite-latest';
+        
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model,
             contents: prompt,
-            config: config
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.STRING
+                    }
+                }
+            }
         });
 
         const jsonText = response.text.trim();
-        const result: { tags: string[] } = JSON.parse(jsonText);
-        
-        return result.tags.map(tag => tag.trim()).filter(Boolean);
+        const tags: string[] = JSON.parse(jsonText);
+        return tags;
 
     } catch (error) {
         console.error("Error generating tags:", error);
-        return [];
+        throw new Error("Failed to generate tags.");
     }
 };
 
 export const getChatResponseStream = async (
     history: ChatMessage[],
-    newMessage: string,
+    message: string,
     transcript: TranscriptSegment[],
     handouts: Handout[],
-    useSearch: boolean,
-    useThinkingMode: boolean
+    useSearchGrounding: boolean,
+    useIntelligenceMode: boolean
 ) => {
-    const ai = getAi();
-    const context = formatContext(transcript, handouts);
-    
-    const model = useThinkingMode ? 'gemini-2.5-pro' : (useSearch ? 'gemini-2.5-flash' : 'gemini-flash-lite-latest');
+    try {
+        const ai = getAi();
+        const context = formatContext(transcript, handouts);
+        const model = useIntelligenceMode ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+        
+        const contents = [
+            ...history.map(msg => ({
+                role: msg.role,
+                parts: [{ text: msg.content }]
+            })),
+            { role: 'user', parts: [{ text: message }] }
+        ];
 
-    const systemInstruction = useSearch
-        ? `You are a helpful AI tutor. Your primary knowledge source is the provided lecture transcript and supplementary handouts. You can also use Google Search to find up-to-date information or concepts not covered in the materials. When you use web sources, you MUST prioritize academic and scholarly articles. Use Google Scholar for your searches whenever possible. You must cite your sources.`
-        : `You are a helpful AI tutor. Your knowledge is strictly limited to the provided lecture transcript and supplementary handouts. Answer the user's questions based ONLY on this context. If the answer cannot be found in the provided materials, say "I cannot answer that based on the provided lecture materials." Do not use any external knowledge.
+        const config: any = {
+            systemInstruction: `You are a helpful academic assistant. Your knowledge base is the provided lecture transcript and handouts. Answer the user's questions based ONLY on this context. If the answer isn't in the context, say that you don't have enough information. If search grounding is enabled, you may use it to supplement your answer.\n\n${context}`,
+            tools: useSearchGrounding ? [{ googleSearch: {} }] : undefined,
+        };
+        if (useIntelligenceMode) {
+            config.thinkingConfig = { thinkingBudget: 32768 };
+        }
+        
+        const responseStream = await ai.models.generateContentStream({
+            model,
+            contents: contents as any,
+            config: config,
+        });
 
---- CONTEXT ---
-${context}
---- END CONTEXT ---
-`;
-    
-    const config: any = { systemInstruction };
-    if (useSearch) {
-        config.tools = [{googleSearch: {}}];
+        return responseStream;
+    } catch (error) {
+        console.error("Error getting chat response stream:", error);
+        throw new Error("Failed to get chat response.");
     }
-    if (useThinkingMode) {
-        config.thinkingConfig = { thinkingBudget: 32768 };
-    }
-
-
-    const chat = ai.chats.create({
-        model,
-        config,
-        history: history.map(msg => ({
-            role: msg.role,
-            parts: [{ text: msg.content }]
-        }))
-    });
-    
-    return chat.sendMessageStream({ message: newMessage });
 };
 
 export const editTranscriptWithAi = async (
     text: string,
     mode: AiEditMode,
+    useIntelligenceMode: boolean,
     customPrompt?: string
 ): Promise<string> => {
     try {
         const ai = getAi();
-        let model: string;
-        let prompt: string;
-        let config: any = {};
+        let prompt = '';
 
         switch (mode) {
             case AiEditMode.Improve:
-                model = 'gemini-flash-lite-latest';
-                prompt = `You are an expert editor. Your task is to improve the readability of the following text, which is a transcript of a spoken lecture. Do not change the meaning. Only perform the following actions:
-- Correct spelling mistakes.
-- Fix grammatical errors.
-- Add or correct punctuation.
-- Improve sentence structure for clarity.
-- Your output should be ONLY the improved text.
+                prompt = `You are an expert editor. Review the following text from a lecture transcript. Your task is to improve its readability by correcting any typos, grammatical errors, and awkward phrasing. Do not add new information or change the meaning. Return only the improved text.
 
---- TEXT ---
+Original text:
+---
 ${text}
---- END TEXT ---
-`;
+---`;
                 break;
-
             case AiEditMode.Format:
-                model = 'gemini-2.5-flash';
-                prompt = `You are a professional note-taker. Convert the following raw lecture transcript into well-structured notes.
-- Use Markdown for formatting.
-- Use headings (#, ##) for main topics.
-- Use bullet points (-) for lists or key details.
-- Use bold syntax (**) to highlight important terms.
-- Your output should be ONLY the formatted notes in Markdown.
+                prompt = `You are an expert note-taker. Convert the following lecture transcript into a structured set of notes. Use Markdown for formatting, including headings, lists, and bold text for key terms. Return only the formatted notes.
 
---- TEXT ---
+Original text:
+---
 ${text}
---- END TEXT ---
-`;
+---`;
                 break;
-            
             case AiEditMode.Topics:
-                 model = 'gemini-2.5-flash';
-                 prompt = `Analyze the following lecture transcript and identify the main topics discussed. Return a list of these topics.
+                 prompt = `You are an expert analyst. Read the following text from a lecture transcript and identify the key topics and concepts discussed. Present them as a concise bulleted list in Markdown. Return only the list of topics.
 
---- TEXT ---
+Original text:
+---
 ${text}
---- END TEXT ---
-`;
-                 config = {
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: {
-                            topics: {
-                                type: Type.ARRAY,
-                                items: { type: Type.STRING }
-                            }
-                        },
-                        required: ['topics']
-                    }
-                };
+---`;
                 break;
-
             case AiEditMode.Summarize:
-                model = 'gemini-flash-lite-latest';
-                prompt = `Summarize the following text excerpt from a lecture transcript in 1-3 sentences. Provide ONLY the summary.
+                prompt = `You are an expert summarizer. Provide a concise summary of the following text from a lecture transcript. The summary should capture the main points and be about 1/4 of the original length. Return only the summary.
 
---- TEXT ---
+Original text:
+---
 ${text}
---- END TEXT ---
-`;
+---`;
                 break;
-
             case AiEditMode.Custom:
                 if (!customPrompt) throw new Error("Custom prompt is required for custom edit mode.");
-                model = 'gemini-2.5-pro';
-                prompt = `You are an expert AI assistant. Apply the following instruction to the provided text. Return only the modified text as a result.
+                prompt = `You are an expert editor following user instructions. Apply the following instruction to the provided text. Return only the modified text, with no extra commentary.
 
 Instruction: "${customPrompt}"
 
---- TEXT ---
+Original text:
+---
 ${text}
---- END TEXT ---
-`;
+---`;
                 break;
-            
             default:
                 throw new Error("Invalid AI edit mode.");
         }
         
-        const response = await ai.models.generateContent({ model, contents: prompt, config: Object.keys(config).length > 0 ? config : undefined });
-        
-        if (mode === AiEditMode.Topics) {
-            const jsonText = response.text.trim();
-            const result = JSON.parse(jsonText);
-            return result.topics.map((topic: string) => `- ${topic}`).join('\n');
+        const model = useIntelligenceMode ? 'gemini-2.5-pro' : 'gemini-flash-lite-latest';
+        const config: any = {};
+        if (useIntelligenceMode) {
+            config.thinkingConfig = { thinkingBudget: 32768 };
         }
-
-        return response.text.trim();
+        
+        const response = await ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: Object.keys(config).length > 0 ? config : undefined,
+        });
+        
+        return response.text;
 
     } catch (error) {
-        console.error(`Error during AI edit mode '${mode}':`, error);
-        throw new Error("An error occurred while processing your request with the AI assistant.");
+        console.error("Error editing transcript with AI:", error);
+        throw new Error("Failed to edit transcript with AI.");
     }
 };

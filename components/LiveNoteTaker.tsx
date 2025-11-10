@@ -63,7 +63,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({ onTranscriptionComplete, 
     
     const startTimeRef = useRef<number>(0);
 
-    const handleMessage = useCallback((message: LiveServerMessage) => {
+    const handleMessage = (message: LiveServerMessage) => {
         if (message.serverContent?.inputTranscription) {
             const { text } = message.serverContent.inputTranscription;
             setInterimText(prev => prev + text);
@@ -79,7 +79,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({ onTranscriptionComplete, 
                 return ''; // Reset interim text
             });
         }
-    }, []);
+    };
 
     const stopRecording = useCallback((isError = false) => {
         setIsRecording(false);
@@ -121,11 +121,18 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({ onTranscriptionComplete, 
         setTranscript([]);
         setInterimText('');
         setError(null);
-        setIsRecording(true);
-        setConnectionStatus('connecting');
-        startTimeRef.current = Date.now();
 
         try {
+            if (!isApiKeyReady) {
+              setError("Please configure your API key in settings to use live transcription.");
+              onOpenSettings();
+              return;
+            }
+            
+            setIsRecording(true);
+            setConnectionStatus('connecting');
+            startTimeRef.current = Date.now();
+            
             const ai = getAi();
             mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
             
@@ -173,7 +180,10 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({ onTranscriptionComplete, 
 
         } catch (err) {
             console.error("Failed to start recording:", err);
-            setError("Could not access microphone. Please check permissions.");
+            const errorMessage = err instanceof Error && err.message.includes("API_KEY")
+                ? "Please configure your API key in settings to use live transcription."
+                : "Could not access microphone. Please check permissions.";
+            setError(errorMessage);
             setIsRecording(false);
             setConnectionStatus('error');
         }
@@ -186,21 +196,6 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({ onTranscriptionComplete, 
             }
         };
     }, [isRecording, stopRecording]);
-
-    if (!isApiKeyReady) {
-        return (
-            <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800 p-8 text-center">
-                <BrainIcon className="w-24 h-24 text-indigo-500 mb-6" />
-                <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">AI Configuration Required</h2>
-                <p className="text-gray-600 dark:text-gray-400 mb-8 max-w-lg">
-                    Live transcription requires a configured Google AI API key. Please set one up to proceed.
-                </p>
-                <button onClick={onOpenSettings} className="bg-indigo-600 text-white rounded-md px-6 py-3 hover:bg-indigo-700 transition-colors shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-800 focus:ring-indigo-500">
-                    Configure API Key
-                </button>
-            </div>
-        )
-    }
 
     const renderConnectionStatus = () => {
         if (!isRecording && connectionStatus !== 'error') return null;

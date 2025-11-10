@@ -26,7 +26,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSelect
 
         <div className="p-6 space-y-4">
             <p className="text-gray-600 dark:text-gray-300">
-                To enable AI-powered features, connect your own Google AI account. This allows you to use your personal API key for all generative tasks within IntelliNote.
+                To enable AI-powered features, connect your own Google AI account. This allows you to use your personal API key for all generative tasks within IntelliNote. Connecting your own key also unlocks <strong className="text-indigo-500 dark:text-indigo-400">Intelligence Mode</strong>, which uses more powerful AI models for the highest quality results.
             </p>
             <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg flex items-center justify-between">
                 <span className="font-medium text-gray-800 dark:text-gray-200">Account Status:</span>
