@@ -57,6 +57,7 @@
       "identifier": "com.intellinote.app",
       "longDescription": "An intelligent note-taking application that listens to lectures in real-time, organizes notes, and generates study materials to enhance your learning experience.",
       "macOS": {
+        "bundleIdentifier": "com.intellinote.app",
         "entitlements": null,
         "exceptionDomain": "",
         "frameworks": [],

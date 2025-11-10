@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Lecture, GenerationMode, Flashcard, Handout, TranscriptSegment, ChatMessage, GroundingSource, AiEditMode } from '../types';
 import { processTranscript, generateFlashcards, getChatResponseStream, editTranscriptWithAi } from '../services/geminiService';
-import { DownloadIcon, NoteIcon, ArrowLeftIcon, ArrowRightIcon, RefreshIcon, PaperclipIcon, TagIcon, XIcon, EditIcon, ChatBubbleIcon, SendIcon, UploadIcon, FileTextIcon, BrainIcon, SparklesIcon, LayersIcon, BookOpenIcon, QuestionMarkCircleIcon, MenuIcon } from './icons';
+import { DownloadIcon, NoteIcon, ArrowLeftIcon, ArrowRightIcon, RefreshIcon, PaperclipIcon, TagIcon, XIcon, EditIcon, ChatBubbleIcon, SendIcon, UploadIcon, FileTextIcon, BrainIcon, SparklesIcon, LayersIcon, BookOpenIcon, QuestionMarkCircleIcon, MenuIcon, SearchIcon, ChevronUpIcon, ChevronDownIcon } from './icons';
 import { parseFile } from '../utils/fileParser';
 import ReactQuill from 'react-quill';
 import TurndownService from 'turndown';
@@ -114,12 +114,18 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
   const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving'>('saved');
   const saveTimeoutRef = useRef<number | null>(null);
   const transcriptTextAreaRef = useRef<HTMLTextAreaElement>(null);
+  const highlightsRef = useRef<HTMLDivElement>(null);
   const [isAiEditing, setIsAiEditing] = useState<AiEditMode | null>(null);
   const [aiEditError, setAiEditError] = useState<string | null>(null);
   const [topicsModalOpen, setTopicsModalOpen] = useState(false);
   const [identifiedTopics, setIdentifiedTopics] = useState('');
   const [customAiPrompt, setCustomAiPrompt] = useState('');
-
+  
+  // Transcript search state
+  const [isSearchVisible, setIsSearchVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<{start: number, end: number}[]>([]);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
 
   // Tagging state
   const [newTag, setNewTag] = useState('');
@@ -551,6 +557,97 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     }
   }, [editedTranscript, isApiKeyReady, useIntelligenceMode]);
 
+    // Transcript Search Logic
+    useEffect(() => {
+        if (!searchQuery) {
+            setSearchResults([]);
+            setCurrentMatchIndex(-1);
+            return;
+        }
+        const regex = new RegExp(searchQuery.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'gi');
+        const results = [];
+        let match;
+        while ((match = regex.exec(editedTranscript)) !== null) {
+            results.push({ start: match.index, end: match.index + match[0].length });
+        }
+        setSearchResults(results);
+        setCurrentMatchIndex(results.length > 0 ? 0 : -1);
+    }, [searchQuery, editedTranscript]);
+    
+    // Scroll to current search match
+    useEffect(() => {
+        if (currentMatchIndex > -1 && searchResults[currentMatchIndex]) {
+            const { start, end } = searchResults[currentMatchIndex];
+            const textarea = transcriptTextAreaRef.current;
+            if (textarea) {
+                textarea.focus();
+                textarea.setSelectionRange(start, end);
+                
+                // Scroll into view logic
+                const textBefore = textarea.value.substring(0, start);
+                const lines = textBefore.split('\n').length;
+                const avgLineHeight = textarea.scrollHeight / (textarea.value.split('\n').length || 1);
+                const scrollTop = (lines - 1) * avgLineHeight;
+
+                const visibleTop = textarea.scrollTop;
+                const visibleBottom = textarea.scrollTop + textarea.clientHeight;
+                
+                if (scrollTop < visibleTop || scrollTop > visibleBottom - avgLineHeight) {
+                    textarea.scrollTop = Math.max(0, scrollTop - textarea.clientHeight / 3);
+                }
+            }
+        }
+    }, [currentMatchIndex, searchResults]);
+
+    const handleCloseSearch = () => {
+        setIsSearchVisible(false);
+        setSearchQuery('');
+    };
+
+    const handleNextMatch = () => {
+        if (searchResults.length > 0) {
+            setCurrentMatchIndex(prev => (prev + 1) % searchResults.length);
+        }
+    };
+    
+    const handlePrevMatch = () => {
+        if (searchResults.length > 0) {
+            setCurrentMatchIndex(prev => (prev - 1 + searchResults.length) % searchResults.length);
+        }
+    };
+    
+    const renderTranscriptHighlights = useCallback(() => {
+        if (!searchQuery || searchResults.length === 0) {
+            return editedTranscript;
+        }
+        const parts = [];
+        let lastIndex = 0;
+        searchResults.forEach((match, index) => {
+            if (match.start > lastIndex) {
+                parts.push(editedTranscript.substring(lastIndex, match.start));
+            }
+            const isCurrent = index === currentMatchIndex;
+            const className = isCurrent ? 'bg-orange-400/50 rounded' : 'bg-yellow-400/50 rounded';
+            parts.push(
+                <span key={index} className={className}>
+                    {editedTranscript.substring(match.start, match.end)}
+                </span>
+            );
+            lastIndex = match.end;
+        });
+        if (lastIndex < editedTranscript.length) {
+            parts.push(editedTranscript.substring(lastIndex));
+        }
+        return parts;
+    }, [searchQuery, searchResults, editedTranscript, currentMatchIndex]);
+    
+    const handleTranscriptScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+        if (highlightsRef.current) {
+            highlightsRef.current.scrollTop = e.currentTarget.scrollTop;
+            highlightsRef.current.scrollLeft = e.currentTarget.scrollLeft;
+        }
+    };
+
 
   useEffect(() => {
     if (activeTab === 'chat') {
@@ -584,13 +681,10 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     );
     
     if (activeTab === 'transcript') {
-        const isSummarizeDisabled = () => {
-            const ta = transcriptTextAreaRef.current;
-            return !ta || ta.selectionStart === ta.selectionEnd;
-        };
+        const transcriptEditorClassName = "w-full h-full p-4 rounded-md resize-none font-mono text-sm leading-relaxed absolute inset-0";
 
         return (
-            <div className="p-6 overflow-y-auto h-full flex flex-col">
+            <div className="p-6 overflow-hidden h-full flex flex-col">
                 {topicsModalOpen && (
                     <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
                         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg">
@@ -608,13 +702,18 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
                         <button onClick={() => handleAiEdit(AiEditMode.Improve)} disabled={!!isAiEditing || !isApiKeyReady} className="px-3 py-1 text-xs bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50">{isAiEditing === 'improve' ? 'Improving...' : 'Improve Readability'}</button>
                         <button onClick={() => handleAiEdit(AiEditMode.Format)} disabled={!!isAiEditing || !isApiKeyReady} className="px-3 py-1 text-xs bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50">{isAiEditing === 'format' ? 'Formatting...' : 'Format as Notes'}</button>
                         <button onClick={() => handleAiEdit(AiEditMode.Topics)} disabled={!!isAiEditing || !isApiKeyReady} className="px-3 py-1 text-xs bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50">{isAiEditing === 'topics' ? 'Identifying...' : 'Identify Key Topics'}</button>
-                        <button onClick={() => handleAiEdit(AiEditMode.Summarize)} disabled={!!isAiEditing || isSummarizeDisabled() || !isApiKeyReady} className="px-3 py-1 text-xs bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50" title="Select text to enable">{isAiEditing === 'summarize' ? 'Summarizing...' : 'Summarize Selection'}</button>
+                        <button onClick={() => handleAiEdit(AiEditMode.Summarize)} disabled={!!isAiEditing || !isApiKeyReady} className="px-3 py-1 text-xs bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50" title="Select text to enable">{isAiEditing === 'summarize' ? 'Summarizing...' : 'Summarize Selection'}</button>
                      </div>
-                     <span className="text-xs font-mono text-gray-500 dark:text-gray-400 self-center">
-                        {saveStatus === 'saved' && 'All changes saved'}
-                        {saveStatus === 'unsaved' && 'Unsaved changes...'}
-                        {saveStatus === 'saving' && 'Saving...'}
-                    </span>
+                     <div className="flex items-center space-x-2">
+                        <button onClick={() => setIsSearchVisible(prev => !prev)} className="p-1 rounded-full text-gray-500 hover:bg-gray-300 dark:hover:bg-gray-600" title="Search Transcript">
+                            <SearchIcon className="w-5 h-5" />
+                        </button>
+                         <span className="text-xs font-mono text-gray-500 dark:text-gray-400 self-center">
+                            {saveStatus === 'saved' && 'All changes saved'}
+                            {saveStatus === 'unsaved' && 'Unsaved changes...'}
+                            {saveStatus === 'saving' && 'Saving...'}
+                        </span>
+                     </div>
                 </div>
                 <div className="flex items-center space-x-2 mb-4">
                     <input
@@ -627,16 +726,45 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
                     />
                      <button onClick={() => handleAiEdit(AiEditMode.Custom, customAiPrompt)} disabled={!!isAiEditing || !customAiPrompt.trim() || !isApiKeyReady} className="px-4 py-2 text-sm bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50">{isAiEditing === 'custom' ? 'Applying...' : 'Apply'}</button>
                 </div>
+
+                {isSearchVisible && (
+                    <div className="flex items-center space-x-2 p-2 mb-2 bg-gray-100 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 flex-shrink-0">
+                        <input 
+                            type="text" 
+                            placeholder="Search..." 
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            autoFocus
+                            className="flex-1 text-sm bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                        <span className="text-sm text-gray-500 dark:text-gray-400 w-24 text-center">
+                            {searchResults.length > 0 ? `${currentMatchIndex + 1} of ${searchResults.length}` : '0 results'}
+                        </span>
+                        <button onClick={handlePrevMatch} disabled={searchResults.length === 0} className="p-1 rounded-md disabled:opacity-50 hover:bg-gray-200 dark:hover:bg-gray-700"><ChevronUpIcon className="w-5 h-5"/></button>
+                        <button onClick={handleNextMatch} disabled={searchResults.length === 0} className="p-1 rounded-md disabled:opacity-50 hover:bg-gray-200 dark:hover:bg-gray-700"><ChevronDownIcon className="w-5 h-5"/></button>
+                        <button onClick={handleCloseSearch} className="p-1 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"><XIcon className="w-5 h-5"/></button>
+                    </div>
+                )}
+                
                 {aiEditError && <p className="text-red-500 dark:text-red-400 text-sm mb-2">Error: {aiEditError}</p>}
 
-                 <textarea
-                    ref={transcriptTextAreaRef}
-                    value={editedTranscript}
-                    onChange={handleTranscriptChange}
-                    readOnly={!!isAiEditing}
-                    className="w-full flex-1 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-300 p-4 rounded-md border border-gray-300 dark:border-gray-700 focus:ring-indigo-500 focus:border-indigo-500 resize-none font-mono text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800"
-                    placeholder="Transcript will appear here..."
-                />
+                 <div className="relative w-full flex-1 bg-white dark:bg-gray-900 rounded-md border border-gray-300 dark:border-gray-700 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500">
+                    <div
+                        ref={highlightsRef}
+                        className={`${transcriptEditorClassName} text-transparent pointer-events-none whitespace-pre-wrap break-words overflow-hidden`}
+                    >
+                        {renderTranscriptHighlights()}
+                    </div>
+                    <textarea
+                        ref={transcriptTextAreaRef}
+                        value={editedTranscript}
+                        onChange={handleTranscriptChange}
+                        onScroll={handleTranscriptScroll}
+                        readOnly={!!isAiEditing}
+                        className={`${transcriptEditorClassName} bg-transparent text-gray-800 dark:text-gray-300 focus:ring-0 focus:border-transparent z-10 disabled:bg-gray-100 dark:disabled:bg-gray-800`}
+                        placeholder="Transcript will appear here..."
+                    />
+                 </div>
             </div>
         )
     }

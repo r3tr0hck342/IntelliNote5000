@@ -9,14 +9,12 @@ interface SidebarProps {
   onNewLiveLecture: () => void;
   onUpload: () => void;
   onDeleteLecture: (id: string) => void;
-  theme: 'light' | 'dark';
-  onToggleTheme: () => void;
   isMobile: boolean;
   onCloseRequest: () => void;
   onOpenSettings: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ lectures, activeLectureId, onSelectLecture, onNewLiveLecture, onUpload, onDeleteLecture, theme, onToggleTheme, isMobile, onCloseRequest, onOpenSettings }) => {
+const Sidebar: React.FC<SidebarProps> = ({ lectures, activeLectureId, onSelectLecture, onNewLiveLecture, onUpload, onDeleteLecture, isMobile, onCloseRequest, onOpenSettings }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTag, setActiveTag] = useState<string | null>(null);
 
@@ -140,22 +138,14 @@ const Sidebar: React.FC<SidebarProps> = ({ lectures, activeLectureId, onSelectLe
           )}
         </nav>
       </div>
-       <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+       <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-700">
         <button 
           onClick={onOpenSettings}
           className="w-full flex items-center justify-center p-2 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
           aria-label="Open AI Settings"
         >
           <SettingsIcon className="w-5 h-5" />
-          <span className="ml-2 text-sm">AI Settings</span>
-        </button>
-        <button 
-          onClick={onToggleTheme}
-          className="w-full flex items-center justify-center p-2 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
-          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-        >
-          {theme === 'dark' ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
-          <span className="ml-2 text-sm">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+          <span className="ml-2 text-sm">Settings</span>
         </button>
       </div>
     </div>

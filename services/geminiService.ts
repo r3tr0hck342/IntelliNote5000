@@ -82,7 +82,18 @@ export const generateFlashcards = async (transcript: TranscriptSegment[], handou
     try {
         const ai = getAi();
         const context = formatContext(transcript, handouts);
-        const prompt = `Based on the combined information from the following lecture transcript and supplementary handouts, identify the most important key terms, concepts, and facts. Create flashcards for concepts found in either the transcript or the handouts. For each, create a flashcard with a 'front' (the term/question) and a 'back' (the definition/answer). Return exactly ${count} flashcards if the content allows, otherwise return as many as possible up to that number.
+        const prompt = `You are an expert academic assistant creating study materials. Based on the combined information from the following lecture transcript and supplementary handouts, generate a set of flashcards. The flashcards should promote active recall and deeper understanding, not just simple definitions.
+
+For each flashcard, create a 'front' and a 'back'.
+- The 'front' should be a clear, concise question. Vary the question types to cover different levels of understanding. Include questions like:
+    - "What is [key term]?"
+    - "Explain the concept of [concept]."
+    - "Compare and contrast [concept A] and [concept B]."
+    - "What is the significance of [event/finding]?"
+    - "Describe the process of [process]."
+- The 'back' should be a comprehensive answer to the question on the front.
+
+Identify the most important key terms, concepts, facts, and relationships from the provided materials. Create flashcards for concepts found in either the transcript or the handouts. Return exactly ${count} flashcards if the content allows, otherwise return as many as possible up to that number.
 
 ${context}`;
         
@@ -96,11 +107,11 @@ ${context}`;
                     properties: {
                         front: {
                             type: Type.STRING,
-                            description: 'The key term, concept, or question for the front of the flashcard.'
+                            description: 'A clear, concise question designed to promote active recall (e.g., "What is X?", "Explain Y.", "Compare A and B.").'
                         },
                         back: {
                             type: Type.STRING,
-                            description: 'The definition, explanation, or answer for the back of the flashcard.'
+                            description: 'A comprehensive answer to the question on the front of the flashcard.'
                         }
                     },
                     required: ['front', 'back']

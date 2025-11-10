@@ -5,6 +5,14 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>IntelliNote - AI Lecture Assistant</title>
+    <script>
+      // Apply theme from localStorage to prevent FOUC. Default to dark mode.
+      if (localStorage.getItem('intellinote-theme') === 'light') {
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.add('dark');
+      }
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link
       rel="stylesheet"

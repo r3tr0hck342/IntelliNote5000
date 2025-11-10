@@ -300,8 +300,6 @@ const App: React.FC = () => {
             onNewLiveLecture={handleNewLiveLecture}
             onUpload={handleUpload}
             onDeleteLecture={handleDeleteLecture}
-            theme={theme}
-            onToggleTheme={toggleTheme}
             isMobile={isMobile}
             onCloseRequest={() => setIsSidebarOpen(false)}
             onOpenSettings={() => setIsSettingsModalOpen(true)}
@@ -321,6 +319,8 @@ const App: React.FC = () => {
         onClose={() => setIsSettingsModalOpen(false)}
         onSelectKey={handleSelectApiKey}
         isApiKeyReady={isApiKeyReady}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
     </div>
   );

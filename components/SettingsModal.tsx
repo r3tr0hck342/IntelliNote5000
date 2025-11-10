@@ -1,14 +1,16 @@
 import React from 'react';
-import { XIcon, BrainIcon } from './icons';
+import { XIcon, BrainIcon, SunIcon, MoonIcon } from './icons';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectKey: () => void;
   isApiKeyReady: boolean;
+  theme: 'light' | 'dark';
+  onToggleTheme: () => void;
 }
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSelectKey, isApiKeyReady }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSelectKey, isApiKeyReady, theme, onToggleTheme }) => {
   if (!isOpen) return null;
 
   return (
@@ -17,28 +19,42 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSelect
         <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center">
             <BrainIcon className="w-6 h-6 mr-3 text-indigo-500" />
-            AI Service Configuration
+            Settings
           </h2>
           <button onClick={onClose} className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
             <XIcon className="w-6 h-6" />
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
-            <p className="text-gray-600 dark:text-gray-300">
-                To enable AI-powered features, connect your own Google AI account. This allows you to use your personal API key for all generative tasks within IntelliNote. Connecting your own key also unlocks <strong className="text-indigo-500 dark:text-indigo-400">Intelligence Mode</strong>, which uses more powerful AI models for the highest quality results.
-            </p>
-            <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg flex items-center justify-between">
-                <span className="font-medium text-gray-800 dark:text-gray-200">Account Status:</span>
-                {isApiKeyReady ? (
-                    <span className="text-green-600 dark:text-green-400 font-semibold px-2 py-1 bg-green-100 dark:bg-green-900 rounded-md">Connected</span>
-                ) : (
-                    <span className="text-yellow-600 dark:text-yellow-400 font-semibold px-2 py-1 bg-yellow-100 dark:bg-yellow-900 rounded-md">Not Connected</span>
-                )}
+        <div className="p-6 space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Appearance</h3>
+              <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg flex items-center justify-between">
+                  <span className="font-medium text-gray-800 dark:text-gray-200">Theme</span>
+                  <button onClick={onToggleTheme} className="flex items-center space-x-2 px-3 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">
+                      {theme === 'dark' ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
+                      <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+                  </button>
+              </div>
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-                By connecting your account, you agree to Google's Generative AI terms and are responsible for any associated usage costs. For more information, please review the <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">billing documentation</a>.
-            </p>
+            
+            <div>
+                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">AI Service Configuration</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                    To enable AI-powered features, connect your own Google AI account. This allows you to use your personal API key for all generative tasks within IntelliNote. Connecting your own key also unlocks <strong className="text-indigo-500 dark:text-indigo-400">Intelligence Mode</strong>, which uses more powerful AI models for the highest quality results.
+                </p>
+                <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg flex items-center justify-between mt-4">
+                    <span className="font-medium text-gray-800 dark:text-gray-200">Account Status:</span>
+                    {isApiKeyReady ? (
+                        <span className="text-green-600 dark:text-green-400 font-semibold px-2 py-1 bg-green-100 dark:bg-green-900 rounded-md">Connected</span>
+                    ) : (
+                        <span className="text-yellow-600 dark:text-yellow-400 font-semibold px-2 py-1 bg-yellow-100 dark:bg-yellow-900 rounded-md">Not Connected</span>
+                    )}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-4">
+                    By connecting your account, you agree to Google's Generative AI terms and are responsible for any associated usage costs. For more information, please review the <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">billing documentation</a>.
+                </p>
+            </div>
         </div>
 
         <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
