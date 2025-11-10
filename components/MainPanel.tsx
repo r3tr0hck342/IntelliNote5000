@@ -1,150 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { Lecture, GenerationMode, CanvasElement, Flashcard, Handout, TranscriptSegment, ChatMessage, GroundingSource, AiEditMode } from '../types';
-import { processTranscript, generateDiagram, generateFlashcards, getChatResponseStream, editTranscriptWithAi } from '../services/geminiService';
-import { DownloadIcon, NoteIcon, ChartBarIcon, ArrowLeftIcon, ArrowRightIcon, RefreshIcon, PaperclipIcon, TagIcon, XIcon, EditIcon, ChatBubbleIcon, SendIcon, UploadIcon, FileTextIcon, BrainIcon, SparklesIcon, LayersIcon, BookOpenIcon, QuestionMarkCircleIcon, MenuIcon } from './icons';
-import Draggable from 'react-draggable';
-import { ResizableBox } from 'react-resizable';
-import mermaid from 'mermaid';
+import { Lecture, GenerationMode, Flashcard, Handout, TranscriptSegment, ChatMessage, GroundingSource, AiEditMode } from '../types';
+import { processTranscript, generateFlashcards, getChatResponseStream, editTranscriptWithAi } from '../services/geminiService';
+import { DownloadIcon, NoteIcon, ArrowLeftIcon, ArrowRightIcon, RefreshIcon, PaperclipIcon, TagIcon, XIcon, EditIcon, ChatBubbleIcon, SendIcon, UploadIcon, FileTextIcon, BrainIcon, SparklesIcon, LayersIcon, BookOpenIcon, QuestionMarkCircleIcon, MenuIcon } from './icons';
 import { parseFile } from '../utils/fileParser';
 import ReactQuill from 'react-quill';
 import TurndownService from 'turndown';
 import { isTauri, nativeSave } from '../utils/native';
-
-
-const MermaidDiagram: React.FC<{ chart: string; id: string; onEdit: () => void; theme: 'light' | 'dark' }> = ({ chart, id, onEdit, theme }) => {
-    const ref = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        if (ref.current && chart) {
-            const renderDiagram = async () => {
-                try {
-                    // The theme is set globally by mermaid.initialize in App.tsx.
-                    // This useEffect is re-triggered by the theme prop changing, ensuring the diagram re-renders with the new theme.
-                    const { svg } = await mermaid.render(`mermaid-${id}`, chart);
-                    if(ref.current) {
-                       ref.current.innerHTML = svg;
-                    }
-                } catch (e) {
-                    console.error("Mermaid render error:", e);
-                    if(ref.current) {
-                        ref.current.innerHTML = `<p class="text-red-400 p-2">Error rendering diagram. The Mermaid syntax might be invalid.</p>`;
-                    }
-                }
-            };
-            renderDiagram();
-        }
-    }, [chart, id, theme]);
-
-    return (
-        <div className="relative w-full h-full bg-gray-200 dark:bg-gray-700">
-            <div ref={ref} className="w-full h-full p-2 flex items-center justify-center" />
-            <button onClick={onEdit} className="absolute top-1 right-1 p-1 rounded-full bg-gray-800 bg-opacity-50 hover:bg-opacity-80 text-gray-300 hover:text-white transition-opacity opacity-0 group-hover:opacity-100 no-drag z-10">
-                <EditIcon className="w-4 h-4" />
-            </button>
-        </div>
-    );
-};
-
-
-interface CanvasItemProps {
-  element: CanvasElement;
-  onUpdate: (id: string, updates: Partial<CanvasElement>) => void;
-  onDelete: (id: string) => void;
-  onEditDiagram: (element: CanvasElement) => void;
-  theme: 'light' | 'dark';
-  isDraggable: boolean;
-}
-
-const CanvasItem: React.FC<CanvasItemProps> = ({ element, onUpdate, onDelete, onEditDiagram, theme, isDraggable }) => {
-    const nodeRef = useRef(null);
-    const quillRef = useRef<ReactQuill>(null);
-
-    const updateTimeoutRef = useRef<number | null>(null);
-
-    const handleContentChange = (content: string) => {
-        if (updateTimeoutRef.current) {
-            clearTimeout(updateTimeoutRef.current);
-        }
-        updateTimeoutRef.current = window.setTimeout(() => {
-            onUpdate(element.id, { content });
-        }, 1000); // Debounce saves by 1 second
-    };
-
-    const quillModules = {
-        toolbar: [
-            [{ 'header': [1, 2, 3, false] }],
-            ['bold', 'underline'],
-            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-            [{ 'color': [] }, { 'background': [] }],
-            ['clean']
-        ],
-    };
-    
-    const renderElement = () => {
-        switch(element.type) {
-            case 'note':
-                 return (
-                    <ReactQuill
-                        ref={quillRef}
-                        theme="snow"
-                        defaultValue={element.content}
-                        onChange={handleContentChange}
-                        modules={quillModules}
-                        className="w-full h-full flex flex-col [&_.ql-toolbar]:bg-gray-100 [&_.ql-toolbar]:dark:bg-gray-800 [&_.ql-container]:bg-white [&_.ql-container]:dark:bg-gray-900 [&_.ql-editor]:text-gray-900 [&_.ql-editor]:dark:text-gray-200"
-                        // Fix: Cast style object to React.CSSProperties to allow custom properties.
-                        style={{'--ql-snow-border': 'none'} as React.CSSProperties}
-                    />
-                 );
-            case 'diagram':
-                return <MermaidDiagram chart={element.content} id={element.id} onEdit={() => onEditDiagram(element)} theme={theme} />;
-        }
-    }
-
-    const ResizableContent = (
-        <ResizableBox
-            width={typeof element.size.width === 'number' ? element.size.width : 400}
-            height={typeof element.size.height === 'number' ? element.size.height : 300}
-            onResizeStop={(_, data) => onUpdate(element.id, { size: data.size })}
-            minConstraints={[200, 150]}
-            className="group shadow-lg rounded-md overflow-hidden flex flex-col bg-white dark:bg-gray-700"
-        >
-            <div className="w-full h-full flex flex-col">
-                <div className={`${isDraggable ? 'drag-handle cursor-move' : ''} h-6 w-full bg-black bg-opacity-20 flex items-center justify-center relative`}>
-                    <div className="w-8 h-1 bg-gray-500 rounded-full" />
-                        <button onClick={() => onDelete(element.id)} className="absolute top-1/2 right-2 -translate-y-1/2 p-0.5 rounded-full bg-gray-800 bg-opacity-50 hover:bg-opacity-80 text-gray-300 hover:text-white transition-opacity opacity-0 group-hover:opacity-100" title="Delete">
-                        <XIcon className="w-3 h-3" />
-                    </button>
-                </div>
-                <div className="flex-1 w-full h-full overflow-auto">
-                    {renderElement()}
-                </div>
-            </div>
-        </ResizableBox>
-    );
-
-    if (isDraggable) {
-        return (
-            <Draggable
-                nodeRef={nodeRef}
-                position={element.position}
-                onStop={(_, data) => onUpdate(element.id, { position: { x: data.x, y: data.y } })}
-                handle=".drag-handle"
-                cancel=".ql-editor, .no-drag, .react-resizable-handle"
-            >
-                <div ref={nodeRef} className="absolute">
-                    {ResizableContent}
-                </div>
-            </Draggable>
-        );
-    }
-    
-    // Static (non-draggable) element
-    return (
-         <div className="absolute" style={{ left: element.position.x, top: element.position.y }}>
-            {ResizableContent}
-        </div>
-    );
-};
 
 const FlashcardViewer: React.FC<{ cards: Flashcard[] }> = ({ cards }) => {
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -244,13 +105,9 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
   const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
   const [isLoading, setIsLoading] = useState(false);
   
-  // Diagram Modal State
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [diagramPrompt, setDiagramPrompt] = useState('');
-  const [diagramType, setDiagramType] = useState('flowchart');
-  const [advancedConfig, setAdvancedConfig] = useState('');
-  const [editingDiagram, setEditingDiagram] = useState<CanvasElement | null>(null);
-  const [isDiagramLoading, setIsDiagramLoading] = useState(false);
+  // State for the notes editor with debouncing
+  const [editorContent, setEditorContent] = useState(lecture.organizedNotes || '');
+  const editorUpdateTimeoutRef = useRef<number | null>(null);
 
   // Transcript editing state
   const [editedTranscript, setEditedTranscript] = useState(lecture.transcript.map(t => t.text).join('\n'));
@@ -297,19 +154,28 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     // Reset editing state on lecture change
     setEditingField(null);
   }, [lecture.id, lecture.transcript]);
-
+  
+  // Update local editor state when the lecture's notes change from an outside source (e.g., AI generation)
   useEffect(() => {
-    if (activeTab === 'notes' && lecture.organizedNotes && !lecture.canvasState) {
-        const initialElements: CanvasElement[] = [{
-            id: `note-${Date.now()}`,
-            type: 'note',
-            content: lecture.organizedNotes,
-            position: { x: 20, y: 20 },
-            size: { width: 600, height: 450 },
-        }];
-        updateLecture(lecture.id, { canvasState: initialElements });
-    }
-  }, [activeTab, lecture, updateLecture]);
+      setEditorContent(lecture.organizedNotes || '');
+  }, [lecture.organizedNotes]);
+
+  // Debounced update from local editor state to the global lecture state
+  useEffect(() => {
+      if (editorContent !== lecture.organizedNotes) {
+          if (editorUpdateTimeoutRef.current) {
+              clearTimeout(editorUpdateTimeoutRef.current);
+          }
+          editorUpdateTimeoutRef.current = window.setTimeout(() => {
+              updateLecture(lecture.id, { organizedNotes: editorContent });
+          }, 1500); // Debounce saves by 1.5 seconds
+      }
+      return () => {
+          if (editorUpdateTimeoutRef.current) {
+              clearTimeout(editorUpdateTimeoutRef.current);
+          }
+      };
+  }, [editorContent, lecture.id, lecture.organizedNotes, updateLecture]);
 
   // Transcript Auto-save logic
   useEffect(() => {
@@ -346,77 +212,6 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     return `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
   };
 
-  const handleElementUpdate = (id: string, updates: Partial<CanvasElement>) => {
-    const newCanvasState = lecture.canvasState?.map(el => el.id === id ? { ...el, ...updates } : el);
-    if (newCanvasState) {
-        updateLecture(lecture.id, { canvasState: newCanvasState });
-    }
-  };
-  
-  const handleDeleteElement = (id: string) => {
-    const newCanvasState = lecture.canvasState?.filter(el => el.id !== id);
-    if (newCanvasState) {
-        updateLecture(lecture.id, { canvasState: newCanvasState });
-    }
-  };
-
-  const addCanvasElement = (element: Omit<CanvasElement, 'id'>) => {
-    const newElement: CanvasElement = { ...element, id: `${element.type}-${Date.now()}`};
-    const newCanvasState = [...(lecture.canvasState || []), newElement];
-    updateLecture(lecture.id, { canvasState: newCanvasState });
-  };
-  
-  const handleOpenModalForEdit = (element: CanvasElement) => {
-    setEditingDiagram(element);
-    setDiagramPrompt(element.prompt || '');
-    setDiagramType(element.diagramType || 'flowchart');
-    setAdvancedConfig(element.advancedConfig || '');
-    setIsModalOpen(true);
-  };
-
-  const handleAddNote = () => {
-    addCanvasElement({
-        type: 'note',
-        content: '<p>New Note</p>',
-        position: { x: 40, y: 40 },
-        size: { width: 400, height: 300 },
-    });
-  };
-
-  const handleGenerateDiagram = async () => {
-    if (!diagramPrompt.trim() || !isApiKeyReady) return;
-    setIsDiagramLoading(true);
-    try {
-        const mermaidSyntax = await generateDiagram(diagramPrompt, diagramType, advancedConfig, lecture.transcript, lecture.handouts, useIntelligenceMode);
-        const diagramData: Partial<CanvasElement> = {
-            content: mermaidSyntax,
-            prompt: diagramPrompt,
-            diagramType,
-            advancedConfig,
-        };
-
-        if(editingDiagram) {
-            handleElementUpdate(editingDiagram.id, diagramData);
-        } else {
-             addCanvasElement({
-                type: 'diagram',
-                position: { x: 60, y: 60 },
-                size: { width: 400, height: 300 },
-                ...diagramData
-            } as Omit<CanvasElement, 'id'>);
-        }
-
-        setIsModalOpen(false);
-        setEditingDiagram(null);
-        setDiagramPrompt('');
-        setDiagramType('flowchart');
-        setAdvancedConfig('');
-    } finally {
-        setIsDiagramLoading(false);
-    }
-  };
-
-
   const currentContent = useMemo(() => {
     switch (activeTab) {
       case 'guide': return lecture.studyGuide;
@@ -447,7 +242,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
       
       const updates: Partial<Lecture> = statusKey ? { [statusKey]: 'success' } : {};
       switch (activeTab) {
-        case 'notes': updates.organizedNotes = result; updates.canvasState = null; break;
+        case 'notes': updates.organizedNotes = result; break;
         case 'guide': updates.studyGuide = result; break;
         case 'questions': updates.testQuestions = result; break;
       }
@@ -487,7 +282,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
             case 'flashcards':
                 return !!lecture.flashcards && lecture.flashcards.length > 0;
             case 'notes':
-                return !!lecture.canvasState && lecture.canvasState.length > 0;
+                return !!lecture.organizedNotes;
              case 'handouts':
                 return !!lecture.handouts && lecture.handouts.length > 0;
             default:
@@ -508,18 +303,9 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
         content = lecture.transcript.map(s => `[${formatTime(s.startTime)}] ${s.text}`).join('\n');
         filenameSuffix = 'Transcript';
     } else if (activeTab === 'notes') {
-        if (!lecture.canvasState || lecture.canvasState.length === 0) return;
+        if (!lecture.organizedNotes) return;
         const turndownService = new TurndownService();
-        content = lecture.canvasState.map(el => {
-            switch (el.type) {
-                case 'note':
-                    return `## Note\n\n${turndownService.turndown(el.content)}\n\n---\n\n`;
-                case 'diagram':
-                    return `## Diagram: ${el.prompt || 'Untitled'}\n\n\`\`\`mermaid\n${el.content}\n\`\`\`\n\n---\n\n`;
-                default:
-                    return '';
-            }
-        }).join('');
+        content = turndownService.turndown(lecture.organizedNotes);
         filenameSuffix = 'Organized_Notes';
     } else if (activeTab === 'handouts') {
         if (!lecture.handouts || lecture.handouts.length === 0) return;
@@ -772,6 +558,17 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     }
   }, [lecture.chatHistory, activeTab]);
 
+  const quillModules = {
+    toolbar: [
+        [{ 'header': [1, 2, 3, false] }],
+        ['bold', 'italic', 'underline', 'strike'],
+        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+        [{ 'indent': '-1'}, { 'indent': '+1' }],
+        [{ 'color': [] }, { 'background': [] }],
+        ['link'],
+        ['clean']
+    ],
+  };
 
   const renderContent = () => {
     const loadingState = (text: string) => (
@@ -848,24 +645,28 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
         if (lecture.organizedNotesStatus === 'generating') return loadingState('Generating Organized Notes...');
         if (lecture.organizedNotesStatus === 'error') return errorState('An error occurred while generating notes.', handleGenerateTextContent);
         
-        return (
-            <div className="relative w-full h-full bg-gray-100 dark:bg-gray-900 overflow-auto">
-                 <div className="absolute top-4 left-4 z-10 flex space-x-2">
-                    <button onClick={handleAddNote} className="flex items-center px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 shadow-lg">
-                        <NoteIcon className="w-5 h-5 mr-2" /> Add Note
-                    </button>
-                    <button onClick={() => { setEditingDiagram(null); setDiagramPrompt(''); setDiagramType('flowchart'); setAdvancedConfig(''); setIsModalOpen(true); }} disabled={!isApiKeyReady} className="flex items-center px-3 py-2 text-sm font-medium text-white bg-teal-600 rounded-md hover:bg-teal-700 shadow-lg disabled:opacity-50">
-                        <ChartBarIcon className="w-5 h-5 mr-2" /> Add Diagram
-                    </button>
+        if (lecture.organizedNotes !== null) {
+            return (
+                <div className="h-full bg-white dark:bg-gray-900">
+                    <ReactQuill
+                        theme="snow"
+                        value={editorContent}
+                        onChange={setEditorContent}
+                        modules={quillModules}
+                        className="h-full flex flex-col [&_.ql-toolbar]:bg-gray-100 [&_.ql-toolbar]:dark:bg-gray-800 [&_.ql-toolbar]:border-b [&_.ql-toolbar]:border-gray-200 [&_.ql-toolbar]:dark:border-gray-700 [&_.ql-container]:border-none"
+                    />
                 </div>
-                {(!lecture.organizedNotes && !isLoading) && (
-                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-600 dark:text-gray-500">
-                        <p className="mb-4">Generate organized notes from the transcript to start building your canvas.</p>
-                        <button onClick={handleGenerateTextContent} disabled={!isApiKeyReady} className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50">Generate Notes</button>
-                     </div>
-                )}
-                {lecture.canvasState?.map((el, index) => <CanvasItem key={el.id} element={el} onUpdate={handleElementUpdate} onDelete={handleDeleteElement} onEditDiagram={handleOpenModalForEdit} theme={theme} isDraggable={index > 0 || el.type !== 'note'} />)}
-            </div>
+            );
+        }
+
+        return (
+             <div className="w-full h-full flex flex-col items-center justify-center text-center text-gray-600 dark:text-gray-500 p-4">
+                <NoteIcon className="w-12 h-12 mb-4 text-gray-400 dark:text-gray-600" />
+                <p className="mb-4">Generate organized notes from the transcript to start.</p>
+                <button onClick={handleGenerateTextContent} disabled={isLoading || !isApiKeyReady} className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50">
+                    {isLoading ? 'Generating...' : 'Generate Notes'}
+                </button>
+             </div>
         );
     }
 
@@ -1069,63 +870,6 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
   return (
     <div className="flex-1 flex flex-col bg-gray-50 dark:bg-gray-800 overflow-hidden">
         {!isApiKeyReady && <ApiKeyBanner onOpenSettings={onOpenSettings} />}
-        {isModalOpen && (
-            <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg">
-                    <div className="flex justify-between items-center mb-4">
-                         <h3 className="text-xl font-bold">{editingDiagram ? 'Edit Diagram' : 'Generate Diagram'}</h3>
-                         <button onClick={() => setIsModalOpen(false)} className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
-                            <XIcon className="w-5 h-5" />
-                        </button>
-                    </div>
-                    <div className="space-y-4">
-                        <div>
-                            <label htmlFor="diagram-prompt" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Prompt</label>
-                            <textarea
-                                id="diagram-prompt"
-                                value={diagramPrompt}
-                                onChange={(e) => setDiagramPrompt(e.target.value)}
-                                rows={3}
-                                placeholder="e.g., A flowchart of the scientific method"
-                                className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-gray-800 dark:text-gray-200 focus:ring-indigo-500 focus:border-indigo-500"
-                            />
-                        </div>
-                        <div>
-                             <label htmlFor="diagram-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Diagram Type</label>
-                            <select
-                                id="diagram-type"
-                                value={diagramType}
-                                onChange={(e) => setDiagramType(e.target.value)}
-                                className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-gray-800 dark:text-gray-200 focus:ring-indigo-500 focus:border-indigo-500"
-                            >
-                                <option value="flowchart">Flowchart</option>
-                                <option value="sequenceDiagram">Sequence Diagram</option>
-                                <option value="gantt">Gantt Chart</option>
-                                <option value="pie">Pie Chart</option>
-                                <option value="classDiagram">Class Diagram</option>
-                            </select>
-                        </div>
-                         <div>
-                            <label htmlFor="advanced-config" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Advanced (Optional)</label>
-                            <input
-                                id="advanced-config"
-                                type="text"
-                                value={advancedConfig}
-                                onChange={(e) => setAdvancedConfig(e.target.value)}
-                                placeholder="e.g., theme base, font size..."
-                                className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-gray-800 dark:text-gray-200 focus:ring-indigo-500 focus:border-indigo-500"
-                            />
-                        </div>
-                    </div>
-                    <div className="flex justify-end space-x-3 mt-6">
-                        <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600">Cancel</button>
-                        <button onClick={handleGenerateDiagram} disabled={isDiagramLoading || !diagramPrompt.trim() || !isApiKeyReady} className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:bg-indigo-400">
-                            {isDiagramLoading ? 'Generating...' : (editingDiagram ? 'Update Diagram' : 'Generate')}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )}
         <header className="flex-shrink-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 p-4 flex justify-between items-center">
             <div className="flex items-center min-w-0">
                 {isMobile && (

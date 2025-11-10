@@ -3,18 +3,6 @@ export interface Flashcard {
   back: string;
 }
 
-export interface CanvasElement {
-  id: string;
-  type: 'note' | 'diagram';
-  content: string; // For 'note', this will be HTML. For 'diagram', it's Mermaid syntax.
-  position: { x: number; y: number };
-  size: { width: number | string; height: number | string };
-  // New fields for diagram regeneration
-  prompt?: string;
-  diagramType?: string;
-  advancedConfig?: string;
-}
-
 export interface Handout {
     name: string;
     content: string;
@@ -44,7 +32,6 @@ export interface Lecture {
   handouts: Handout[];
   organizedNotes: string | null; // This will now store HTML
   organizedNotesStatus?: 'generating' | 'error' | 'success';
-  canvasState: CanvasElement[] | null;
   studyGuide: string | null;
   testQuestions: string | null;
   flashcards: Flashcard[] | null;

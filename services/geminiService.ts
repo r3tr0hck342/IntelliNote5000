@@ -128,44 +128,6 @@ ${context}`;
     }
 };
 
-
-export const generateDiagram = async (prompt: string, diagramType: string, advancedConfig: string, transcript: TranscriptSegment[], handouts: Handout[], useIntelligenceMode: boolean): Promise<string> => {
-    try {
-        const ai = getAi();
-        const context = formatContext(transcript, handouts);
-        const diagramPrompt = `You are an expert in data visualization using Mermaid.js. You have the context of a lecture transcript and handouts. Based on this context and the following user request, generate ONLY the corresponding Mermaid.js syntax for a ${diagramType}.
-- Your response must start directly with the Mermaid syntax (e.g., "graph TD", "sequenceDiagram", "pie", etc.).
-- Do NOT include markdown fences (\`\`\`mermaid) or any other explanatory text.
-- If the user provides an advanced configuration, apply it to the diagram.
-- If the request is impossible, return a valid Mermaid graph with an error message, like: graph TD; A["Error: Could not generate a ${diagramType} from the prompt."];
-
-User Request: "${prompt}"
-${advancedConfig ? `Advanced Configuration: "${advancedConfig}"` : ''}
-
-Lecture Context:
----
-${context}
----`;
-        const model = useIntelligenceMode ? 'gemini-2.5-pro' : 'gemini-flash-lite-latest';
-        const config: any = {};
-        if (useIntelligenceMode) {
-            config.thinkingConfig = { thinkingBudget: 32768 };
-        }
-        
-        const response = await ai.models.generateContent({
-            model,
-            contents: diagramPrompt,
-            config: Object.keys(config).length > 0 ? config : undefined,
-        });
-
-        return response.text;
-
-    } catch (error) {
-        console.error("Error generating diagram:", error);
-        return `graph TD;\n  A["An error occurred while generating the diagram."];`;
-    }
-};
-
 export const generateTags = async (transcript: TranscriptSegment[], handouts: Handout[]): Promise<string[]> => {
     try {
         const ai = getAi();

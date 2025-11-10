@@ -137,7 +137,7 @@ const App: React.FC = () => {
     try {
         // Use intelligence mode 'false' for default auto-generation
         const notes = await processTranscript(lecture.transcript, GenerationMode.Notes, lecture.handouts, false);
-        updateLecture(lecture.id, { organizedNotes: notes, canvasState: null, organizedNotesStatus: 'success' });
+        updateLecture(lecture.id, { organizedNotes: notes, organizedNotesStatus: 'success' });
     } catch (e) {
         console.error("Failed to auto-generate notes:", e);
         updateLecture(lecture.id, { organizedNotesStatus: 'error' });
@@ -163,7 +163,6 @@ const App: React.FC = () => {
       handouts: [],
       organizedNotes: null,
       organizedNotesStatus: 'generating',
-      canvasState: null,
       studyGuide: null,
       testQuestions: null,
       flashcards: null,
@@ -197,7 +196,6 @@ const App: React.FC = () => {
         handouts: data.handouts,
         organizedNotes: null,
         organizedNotesStatus: 'generating',
-        canvasState: null,
         studyGuide: null,
         testQuestions: null,
         flashcards: null,
