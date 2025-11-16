@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>IntelliNote - AI Lecture Assistant</title>
+    <script>
+      // Apply theme from localStorage to prevent FOUC. Default to dark mode.
+      if (localStorage.getItem('intellinote-theme') === 'light') {
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.add('dark');
+      }
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/react-resizable@3.0.5/css/styles.css"
+    />
+    <link 
+      rel="stylesheet" 
+      href="https://cdn.jsdelivr.net/npm/react-quill@2.0.0/dist/quill.snow.css"
+    />
+
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^18.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^18.2.0/",
+    "react/": "https://aistudiocdn.com/react@^18.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.28.0",
+    "react-draggable": "https://esm.sh/react-draggable@4.4.6",
+    "react-resizable": "https://esm.sh/react-resizable@3.0.5",
+    "mermaid": "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs",
+    "pdfjs-dist": "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs",
+    "react-quill": "https://esm.sh/react-quill@2.0.0",
+    "turndown": "https://esm.sh/turndown@7.1.3",
+    "mammoth": "https://esm.sh/mammoth@1.7.2",
+    "@tauri-apps/api/": "https://esm.sh/@tauri-apps/api@1.6.0/",
+    "@capacitor/app": "https://esm.sh/@capacitor/app@6.0.0",
+    "@capacitor/status-bar": "https://esm.sh/@capacitor/status-bar@6.0.0",
+    "vite": "https://aistudiocdn.com/vite@^7.2.2",
+    "@capacitor/cli": "https://aistudiocdn.com/@capacitor/cli@^7.4.4"
+  }
+}
+</script>
+  <script type="module" crossorigin src="/assets/index-33lrBLqE.js"></script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

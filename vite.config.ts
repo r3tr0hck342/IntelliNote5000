@@ -18,4 +18,15 @@ export default defineConfig(async () => ({
   // 3. to make use of `TAURI_DEBUG` and other env variables
   // https://tauri.app/v1/api/config#buildconfig.beforedevcommand
   envPrefix: ["VITE_", "TAURI_"],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          mermaid: ['mermaid'],
+          pdfjs: ['pdfjs-dist'],
+          'react-quill': ['react-quill', 'quill'],
+        },
+      },
+    },
+  },
 }));

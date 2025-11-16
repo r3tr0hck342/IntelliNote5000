@@ -6,27 +6,13 @@ import FileUploadModal from './components/FileUploadModal';
 import SettingsModal from './components/SettingsModal';
 import { Lecture, AppView, Handout, TranscriptSegment, GenerationMode } from './types';
 import { BrainIcon, MenuIcon } from './components/icons';
-import { processTranscript, generateTags } from './services/geminiService';
+import { processTranscript, generateTags } from './services/aiService';
 import { App as CapacitorApp } from '@capacitor/app';
 import mermaid from 'mermaid';
+import { ApiConfig, loadApiConfig, persistApiConfig, clearStoredApiConfig } from './utils/apiConfig';
+import { PROVIDER_METADATA } from './services/providers';
 
-// Mock the aistudio object if it doesn't exist for local dev
-if (typeof window.aistudio === 'undefined') {
-  console.log("Mocking window.aistudio for development. Set MOCK_API_KEY to true to simulate a connected key.");
-  const MOCK_API_KEY = false;
-  (window as any).aistudio = {
-    hasSelectedApiKey: async () => {
-      return Promise.resolve(MOCK_API_KEY);
-    },
-    openSelectKey: async () => {
-      console.log("window.aistudio.openSelectKey() called");
-      if (!MOCK_API_KEY) {
-        alert("This is a mock flow. In a real environment, you would select your API key. We'll now simulate a successful connection.");
-      }
-      return Promise.resolve();
-    },
-  };
-}
+const PROVIDERS = Object.values(PROVIDER_METADATA);
 
 const getInitialTheme = (): 'light' | 'dark' => {
   const storedTheme = localStorage.getItem('intellinote-theme');
@@ -49,16 +35,9 @@ const App: React.FC = () => {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 768);
   
-  const [isApiKeyReady, setIsApiKeyReady] = useState(false);
+  const [apiConfig, setApiConfig] = useState<ApiConfig | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-
-  useEffect(() => {
-    const checkApiKey = async () => {
-        const hasKey = await window.aistudio.hasSelectedApiKey();
-        setIsApiKeyReady(hasKey);
-    };
-    checkApiKey();
-  }, []);
+  const isApiKeyReady = Boolean(apiConfig?.apiKey);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -106,6 +85,18 @@ const App: React.FC = () => {
         console.error("Failed to save lectures to localStorage", e);
     }
   }, [lectures]);
+
+  useEffect(() => {
+    let mounted = true;
+    loadApiConfig()
+      .then(config => {
+        if (mounted) setApiConfig(config);
+      })
+      .catch(error => {
+        console.warn('Failed to load API config', error);
+      });
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -231,19 +222,30 @@ const App: React.FC = () => {
     if(isMobile) setIsSidebarOpen(false);
   };
 
-  const handleSelectApiKey = async () => {
-    await window.aistudio.openSelectKey();
-    // Assume key selection is successful as per guidelines
-    setIsApiKeyReady(true);
+  const handleSaveApiConfig = useCallback(async (config: ApiConfig) => {
+    await persistApiConfig(config);
+    setApiConfig(config);
     setIsSettingsModalOpen(false);
-  };
+  }, []);
+
+  const handleClearApiConfig = useCallback(async () => {
+    await clearStoredApiConfig();
+    setApiConfig(null);
+  }, []);
 
   const activeLecture = lectures.find(l => l.id === activeLectureId);
 
   const renderMainContent = () => {
     switch(currentView) {
         case AppView.Live:
-            return <LiveNoteTaker onTranscriptionComplete={handleTranscriptionComplete} isApiKeyReady={isApiKeyReady} onOpenSettings={() => setIsSettingsModalOpen(true)} />;
+            return (
+                <LiveNoteTaker
+                    onTranscriptionComplete={handleTranscriptionComplete}
+                    isApiKeyReady={isApiKeyReady}
+                    onOpenSettings={() => setIsSettingsModalOpen(true)}
+                    providerId={apiConfig?.provider ?? null}
+                />
+            );
         case AppView.Note:
             if (activeLecture) {
                 return <MainPanel theme={theme} lecture={activeLecture} updateLecture={updateLecture} isMobile={isMobile} onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} isApiKeyReady={isApiKeyReady} onOpenSettings={() => setIsSettingsModalOpen(true)} />;
@@ -317,7 +319,10 @@ const App: React.FC = () => {
       <SettingsModal 
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
-        onSelectKey={handleSelectApiKey}
+        apiConfig={apiConfig}
+        onSaveApiConfig={handleSaveApiConfig}
+        onClearApiConfig={handleClearApiConfig}
+        availableProviders={PROVIDERS}
         isApiKeyReady={isApiKeyReady}
         theme={theme}
         onToggleTheme={toggleTheme}

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Lecture, GenerationMode, Flashcard, Handout, TranscriptSegment, ChatMessage, GroundingSource, AiEditMode } from '../types';
-import { processTranscript, generateFlashcards, getChatResponseStream, editTranscriptWithAi } from '../services/geminiService';
+import { processTranscript, generateFlashcards, getChatResponseStream, editTranscriptWithAi } from '../services/aiService';
 import { DownloadIcon, NoteIcon, ArrowLeftIcon, ArrowRightIcon, RefreshIcon, PaperclipIcon, TagIcon, XIcon, EditIcon, ChatBubbleIcon, SendIcon, UploadIcon, FileTextIcon, BrainIcon, SparklesIcon, LayersIcon, BookOpenIcon, QuestionMarkCircleIcon, MenuIcon, SearchIcon, ChevronUpIcon, ChevronDownIcon } from './icons';
 import { parseFile } from '../utils/fileParser';
 import ReactQuill from 'react-quill';
@@ -419,13 +419,9 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
         updateLecture(lecture.id, { chatHistory: [...newHistory, {role: 'model', content: ''}] });
 
         for await (const chunk of stream) {
-            currentResponse += chunk.text;
-             const newSources = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks
-                ?.map(c => c.web && { uri: c.web.uri, title: c.web.title })
-                .filter((s): s is GroundingSource => !!s?.uri) ?? [];
-            
-            if (newSources.length > 0) {
-                 newSources.forEach(source => {
+            currentResponse += chunk.textDelta;
+            if (chunk.sources && chunk.sources.length > 0) {
+                chunk.sources.forEach(source => {
                     if (!sources.some(s => s.uri === source.uri)) {
                         sources.push(source);
                     }

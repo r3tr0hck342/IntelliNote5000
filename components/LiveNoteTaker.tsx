@@ -2,17 +2,22 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Blob } from '@google/genai';
 import { MicIcon, StopIcon, BrainIcon } from './icons';
 import { TranscriptSegment } from '../types';
+import { getRequiredApiConfig } from '../utils/env';
+import { ProviderId } from '../types/ai';
 
 interface LiveNoteTakerProps {
     onTranscriptionComplete: (transcript: TranscriptSegment[]) => void;
     isApiKeyReady: boolean;
     onOpenSettings: () => void;
+    providerId: ProviderId | null;
 }
 
 const getAi = () => {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) throw new Error("API_KEY environment variable not set. It should be configured in the execution environment.");
-    return new GoogleGenAI({ apiKey });
+    const config = getRequiredApiConfig();
+    if (config.provider !== 'gemini') {
+        throw new Error("Live transcription is only supported with the Gemini provider.");
+    }
+    return new GoogleGenAI({ apiKey: config.apiKey });
 };
 
 // Encoding/decoding functions for audio must be implemented manually as per guidelines.
@@ -38,9 +43,10 @@ function createBlob(data: Float32Array): Blob {
 }
 
 
-const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({ onTranscriptionComplete, isApiKeyReady, onOpenSettings }) => {
+const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({ onTranscriptionComplete, isApiKeyReady, onOpenSettings, providerId }) => {
     const [isRecording, setIsRecording] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const supportsLiveTranscription = providerId === 'gemini';
 
     // Store transcript as segments
     const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
@@ -123,6 +129,11 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({ onTranscriptionComplete, 
         setError(null);
 
         try {
+            if (!supportsLiveTranscription) {
+                setError("Live transcription currently requires the Gemini provider. Please switch providers in Settings.");
+                onOpenSettings();
+                return;
+            }
             if (!isApiKeyReady) {
               setError("Please configure your API key in settings to use live transcription.");
               onOpenSettings();
@@ -180,7 +191,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({ onTranscriptionComplete, 
 
         } catch (err) {
             console.error("Failed to start recording:", err);
-            const errorMessage = err instanceof Error && err.message.includes("API_KEY")
+            const errorMessage = err instanceof Error && err.message.toLowerCase().includes("api key")
                 ? "Please configure your API key in settings to use live transcription."
                 : "Could not access microphone. Please check permissions.";
             setError(errorMessage);
@@ -242,15 +253,24 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({ onTranscriptionComplete, 
                 Click the microphone to start recording your lecture. Your words will be transcribed in real-time.
             </p>
             
-            <div className="mb-8">
+            <div className="mb-8 flex flex-col items-center space-y-3">
                 {!isRecording ? (
-                    <button onClick={startRecording} className="bg-indigo-600 text-white rounded-full p-6 hover:bg-indigo-700 transition-all duration-200 shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-800 focus:ring-indigo-500">
+                    <button
+                        onClick={startRecording}
+                        disabled={!supportsLiveTranscription || !isApiKeyReady}
+                        className="bg-indigo-600 text-white rounded-full p-6 hover:bg-indigo-700 transition-all duration-200 shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-800 focus:ring-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
                         <MicIcon className="w-12 h-12" />
                     </button>
                 ) : (
                     <button onClick={() => stopRecording()} className="bg-red-600 text-white rounded-full p-6 hover:bg-red-700 transition-all duration-200 shadow-lg animate-pulse focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-800 focus:ring-red-500">
                         <StopIcon className="w-12 h-12" />
                     </button>
+                )}
+                {!supportsLiveTranscription && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400 max-w-md">
+                        Live transcription currently requires the Gemini provider. Switch providers under Settings to enable this feature.
+                    </p>
                 )}
             </div>
 
