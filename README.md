@@ -52,6 +52,15 @@ Add new providers by creating an adapter in `services/providers/` and surfacing 
 Use `npm run verify:providers` to ensure new provider configurations satisfy the automated checks.
 Use `npm run verify:platforms` to confirm platform permission strings and native config files are in place before packaging native builds.
 
+## Release Verification
+Run the release verification script before packaging native builds:
+
+```bash
+npm run verify:release
+```
+
+This runs linting, type checks, unit tests, a production build, and a release-specific verification script that validates native configuration files, permission strings, and required Capacitor/Tauri assets. Fix any reported errors before cutting a release.
+
 ## Production Checklist
 - ✅ Configure AI + STT providers in Settings and verify credentials.
 - ✅ Disable localStorage fallback unless you explicitly need it for web-only builds.
