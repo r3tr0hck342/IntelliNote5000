@@ -188,3 +188,9 @@ export const PlayIcon = ({ className = 'w-6 h-6' }: { className?: string }) => (
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 5l12 7-12 7V5z" />
     </svg>
 );
+
+export const TrashIcon = ({ className = 'w-6 h-6' }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m-3-4h-4a1 1 0 00-1 1v1h10V4a1 1 0 00-1-1h-4" />
+    </svg>
+);

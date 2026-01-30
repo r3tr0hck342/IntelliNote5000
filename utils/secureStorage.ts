@@ -1,5 +1,6 @@
 import type { ApiConfig } from '../types/ai';
 import { isTauri } from './native';
+import { getCredentialFallbackPreference } from './credentialPolicy';
 
 const STORAGE_KEY = 'intellinote-api-config';
 const CAP_STORAGE_KEY = 'intellinote_api_config';
@@ -12,6 +13,7 @@ const isCapacitorNative = () => {
 
 const fallbackStore = {
   load: (): ApiConfig | null => {
+    if (!getCredentialFallbackPreference()) return null;
     if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
     const value = localStorage.getItem(STORAGE_KEY);
     if (!value) return null;
@@ -22,10 +24,12 @@ const fallbackStore = {
     }
   },
   save: (config: ApiConfig) => {
+    if (!getCredentialFallbackPreference()) return;
     if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   },
   clear: () => {
+    if (!getCredentialFallbackPreference()) return;
     if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
     localStorage.removeItem(STORAGE_KEY);
   }

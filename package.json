@@ -17,7 +17,11 @@
     "start-mobile": "npm run build && npx cap sync && (npx cap open android || npx cap open ios)",
     "sync-mobile": "npm run build && npx cap sync",
     "verify:providers": "ts-node --esm verification_scripts/verify_providers.ts",
-    "test:transcript": "ts-node --esm verification_scripts/transcript_pipeline.test.ts"
+    "test:transcript": "ts-node --esm verification_scripts/transcript_pipeline.test.ts",
+    "test:unit": "ts-node --esm verification_scripts/unit.test.ts",
+    "test": "npm run test:unit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx"
   },
   "dependencies": {
     "@capacitor/core": "^6.1.1",
@@ -44,6 +48,11 @@
     "@tauri-apps/cli": "^1.6.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "@typescript-eslint/eslint-plugin": "^7.17.0",
+    "@typescript-eslint/parser": "^7.17.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react": "^7.35.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.5.4",
     "vite": "^5.3.5"

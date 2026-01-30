@@ -104,3 +104,10 @@ export enum AiEditMode {
   Summarize = 'summarize',
   Custom = 'custom',
 }
+
+export interface PersistedSessions {
+  schemaVersion: number;
+  sessions: StudySession[];
+}
+
+export const SESSION_SCHEMA_VERSION = 1;

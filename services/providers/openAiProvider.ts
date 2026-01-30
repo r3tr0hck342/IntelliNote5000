@@ -2,6 +2,7 @@ import { GenerationMode, Flashcard, Handout, TranscriptSegment, ChatMessage, AiE
 import { formatContext, getPromptForMode, getFlashcardPrompt, getTagPrompt, getChatSystemPrompt, getEditPrompt } from '../aiPrompts';
 import { AiProvider, ProviderMetadata, ProviderRuntimeOptions, AiChatChunk } from './types';
 import { ApiConfig } from '../../utils/apiConfig';
+import { mapProviderError } from './errors';
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const FAST_MODEL = 'gpt-4o-mini';
@@ -29,21 +30,25 @@ const buildEndpoint = (config: ApiConfig) => {
 };
 
 const callOpenAi = async (config: ApiConfig, body: Record<string, any>) => {
-    const response = await fetch(buildEndpoint(config), {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify(body),
-    });
+    try {
+        const response = await fetch(buildEndpoint(config), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${config.apiKey}`,
+            },
+            body: JSON.stringify(body),
+        });
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`OpenAI request failed: ${errorText}`);
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw mapProviderError({ status: response.status, message: errorText }, 'openai');
+        }
+
+        return response.json();
+    } catch (error) {
+        throw mapProviderError(error, 'openai');
     }
-
-    return response.json();
 };
 
 const buildHistory = (history: ChatMessage[]): OpenAiMessage[] => history.map(msg => ({
@@ -59,78 +64,98 @@ export const createOpenAiProvider = (config: ApiConfig): AiProvider => {
         metadata: openAiMetadata,
         rawConfig: config,
         processTranscript: async (transcript, mode, handouts, options) => {
-            const context = formatContext(transcript, handouts);
-            const prompt = getPromptForMode(mode, context);
-            const result = await callOpenAi(config, {
-                model: selectModel(options),
-                messages: [
-                    { role: 'system', content: 'You are an expert academic assistant.' },
-                    { role: 'user', content: prompt },
-                ],
-                temperature: 0.3,
-            });
-            return result.choices?.[0]?.message?.content?.trim() ?? '';
+            try {
+                const context = formatContext(transcript, handouts);
+                const prompt = getPromptForMode(mode, context);
+                const result = await callOpenAi(config, {
+                    model: selectModel(options),
+                    messages: [
+                        { role: 'system', content: 'You are an expert academic assistant.' },
+                        { role: 'user', content: prompt },
+                    ],
+                    temperature: 0.3,
+                });
+                return result.choices?.[0]?.message?.content?.trim() ?? '';
+            } catch (error) {
+                throw mapProviderError(error, 'openai');
+            }
         },
         generateFlashcards: async (transcript, handouts, options) => {
-            const context = formatContext(transcript, handouts);
-            const prompt = `${getFlashcardPrompt(context, options?.count ?? 10)}
+            try {
+                const context = formatContext(transcript, handouts);
+                const prompt = `${getFlashcardPrompt(context, options?.count ?? 10)}
 
 Return the flashcards as a JSON array with objects using keys "front" and "back".`;
-            const result = await callOpenAi(config, {
-                model: selectModel(options),
-                messages: [
-                    { role: 'system', content: 'You create excellent study flashcards.' },
-                    { role: 'user', content: prompt },
-                ],
-                temperature: 0.4,
-            });
-            const text = result.choices?.[0]?.message?.content ?? '[]';
-            return JSON.parse(text);
+                const result = await callOpenAi(config, {
+                    model: selectModel(options),
+                    messages: [
+                        { role: 'system', content: 'You create excellent study flashcards.' },
+                        { role: 'user', content: prompt },
+                    ],
+                    temperature: 0.4,
+                });
+                const text = result.choices?.[0]?.message?.content ?? '[]';
+                return JSON.parse(text);
+            } catch (error) {
+                throw mapProviderError(error, 'openai');
+            }
         },
         generateTags: async (transcript, handouts) => {
-            const context = formatContext(transcript, handouts);
-            const prompt = `${getTagPrompt(context)}
+            try {
+                const context = formatContext(transcript, handouts);
+                const prompt = `${getTagPrompt(context)}
 
 Return only a valid JSON array.`;
-            const result = await callOpenAi(config, {
-                model: FAST_MODEL,
-                messages: [
-                    { role: 'system', content: 'You extract concise topical tags.' },
-                    { role: 'user', content: prompt },
-                ],
-                temperature: 0.2,
-            });
-            const text = result.choices?.[0]?.message?.content ?? '[]';
-            return JSON.parse(text);
+                const result = await callOpenAi(config, {
+                    model: FAST_MODEL,
+                    messages: [
+                        { role: 'system', content: 'You extract concise topical tags.' },
+                        { role: 'user', content: prompt },
+                    ],
+                    temperature: 0.2,
+                });
+                const text = result.choices?.[0]?.message?.content ?? '[]';
+                return JSON.parse(text);
+            } catch (error) {
+                throw mapProviderError(error, 'openai');
+            }
         },
         generateChatStream: async function* (history, message, transcript, handouts, options): AsyncGenerator<AiChatChunk> {
-            const context = formatContext(transcript, handouts);
-            const messages: OpenAiMessage[] = [
-                { role: 'system', content: getChatSystemPrompt(context) },
-                ...buildHistory(history),
-                { role: 'user', content: message },
-            ];
-            const result = await callOpenAi(config, {
-                model: selectModel(options),
-                messages,
-                temperature: 0.3,
-            });
-            const text = result.choices?.[0]?.message?.content ?? '';
-            if (text) {
-                yield { textDelta: text };
+            try {
+                const context = formatContext(transcript, handouts);
+                const messages: OpenAiMessage[] = [
+                    { role: 'system', content: getChatSystemPrompt(context) },
+                    ...buildHistory(history),
+                    { role: 'user', content: message },
+                ];
+                const result = await callOpenAi(config, {
+                    model: selectModel(options),
+                    messages,
+                    temperature: 0.3,
+                });
+                const text = result.choices?.[0]?.message?.content ?? '';
+                if (text) {
+                    yield { textDelta: text };
+                }
+            } catch (error) {
+                throw mapProviderError(error, 'openai');
             }
         },
         editTranscript: async (text, mode, options) => {
-            const prompt = getEditPrompt(mode, text, options?.customPrompt);
-            const result = await callOpenAi(config, {
-                model: selectModel(options),
-                messages: [
-                    { role: 'system', content: 'You faithfully transform text according to instructions.' },
-                    { role: 'user', content: prompt },
-                ],
-                temperature: 0.2,
-            });
-            return result.choices?.[0]?.message?.content?.trim() ?? '';
+            try {
+                const prompt = getEditPrompt(mode, text, options?.customPrompt);
+                const result = await callOpenAi(config, {
+                    model: selectModel(options),
+                    messages: [
+                        { role: 'system', content: 'You faithfully transform text according to instructions.' },
+                        { role: 'user', content: prompt },
+                    ],
+                    temperature: 0.2,
+                });
+                return result.choices?.[0]?.message?.content?.trim() ?? '';
+            } catch (error) {
+                throw mapProviderError(error, 'openai');
+            }
         },
     };
 };

@@ -1,5 +1,6 @@
 import { SttConfig, StreamingSttConfig, SttFinalResult, SttInterimResult } from '../../types/stt';
 import { StreamingSttProvider, StreamingSttSession } from './types';
+import { createSttError, mapSttError } from './errors';
 
 const buildDeepgramUrl = (config: StreamingSttConfig) => {
   const params = new URLSearchParams({
@@ -54,12 +55,12 @@ export const createDeepgramProvider = (config: SttConfig): StreamingSttProvider 
             callbacks.onInterim(parsed);
           }
         } catch (error) {
-          callbacks.onError(error instanceof Error ? error : new Error('Deepgram message parse failed.'));
+          callbacks.onError(mapSttError(error));
         }
       };
 
       socket.onerror = () => {
-        callbacks.onError(new Error('Deepgram connection error.'));
+        callbacks.onError(createSttError('Deepgram connection error.', 'connection_failed', true));
       };
 
       socket.onclose = () => {

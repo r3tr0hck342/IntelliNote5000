@@ -15,7 +15,7 @@ INTELLINOTE5000
    # Add your provider + key. Runtime Settings UI is still the recommended approach.
    ```
 3. Start the Vite dev server (port 1420, strict): `npm run dev`
-4. Launch `http://localhost:1420`, open **Settings → AI Provider**, choose Gemini or OpenAI, and paste your API key. Keys are stored locally (browser localStorage or secure storage in native shells) so every user supplies their own credentials.
+4. Launch `http://localhost:1420`, open **Settings → AI Provider**, choose Gemini or OpenAI, and paste your API key. Keys are stored in secure storage on native builds; browser storage is opt-in and controlled in Settings.
 5. Open **Settings → Transcription Provider** to configure a streaming STT key (Deepgram). This powers real-time, word-by-word transcription with interim results.
 6. Allow microphone access if you plan to use live transcription.
 6. `npm install` is configured with `legacy-peer-deps=true` (see `.npmrc`) so the Capacitor secure storage plugin can coexist with Capacitor 6 until the upstream publishes updated peer constraints.
@@ -36,11 +36,40 @@ INTELLINOTE5000
 Add new providers by creating an adapter in `services/providers/` and surfacing it in Settings.
 
 ### Secure API Key Storage
-- **Web**: Stored in localStorage (development only).
+- **Web**: LocalStorage fallback is opt-in via **Settings → Diagnostics & Storage**.
 - **macOS Desktop (Tauri)**: Stored in the macOS Keychain through Tauri commands (`keyring` crate). No API keys are written to disk.
 - **iOS/iPadOS (Capacitor)**: Stored via `capacitor-secure-storage-plugin`, backed by the iOS Keychain. After installing dependencies, run `npx cap sync ios` to copy the plugin into the native project before archiving.
+- **Clear credentials**: Use **Settings → Clear All Credentials** to wipe cached keys and fallback storage.
 
 Use `npm run verify:providers` to ensure new provider configurations satisfy the automated checks.
+
+## Production Checklist
+- ✅ Configure AI + STT providers in Settings and verify credentials.
+- ✅ Disable localStorage fallback unless you explicitly need it for web-only builds.
+- ✅ Verify transcription permissions on each platform.
+- ✅ Run `npm run lint`, `npm run typecheck`, and `npm run test:unit`.
+- ✅ Run `npm run build` and `npm run build-desktop` / `npm run sync-mobile` as needed.
+- ✅ Review **Settings → Diagnostics & Storage** for recent errors before release.
+
+## Troubleshooting
+- **AI requests fail**: Open the Diagnostics panel (Settings → Diagnostics) and confirm provider + error codes. Re-save your API key or regenerate it.
+- **STT connection error**: Confirm your Deepgram key and that your network allows WebSocket connections.
+- **Keys not persisting on web**: Enable the localStorage fallback toggle in Settings.
+- **Microphone blocked**: Check browser permissions or update native Info.plist/AndroidManifest entries.
+
+## Platform Permission Notes
+- **macOS/iOS**: Add `NSMicrophoneUsageDescription` before shipping. Ensure entitlements permit microphone access.
+- **Android**: Declare `RECORD_AUDIO` in `AndroidManifest.xml` and re-run `npx cap sync`.
+- **Web**: HTTPS is required for microphone access in most browsers.
+
+## Release Steps
+1. `npm install`
+2. `npm run lint`
+3. `npm run typecheck`
+4. `npm run test:unit`
+5. `npm run build`
+6. Desktop: `npm run build-desktop`
+7. Mobile: `npm run sync-mobile` → open Xcode/Android Studio for signing and release builds.
 
 ### Build commands
 - `npm run build` – production web bundle
