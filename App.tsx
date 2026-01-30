@@ -4,7 +4,9 @@ import MainPanel from './components/MainPanel';
 import LiveNoteTaker from './components/LiveNoteTaker';
 import FileUploadModal from './components/FileUploadModal';
 import SettingsModal from './components/SettingsModal';
-import { LegacyLecture, AppView, Handout, TranscriptSegment, GenerationMode, StudySession, LectureAsset } from './types';
+import ToastViewport from './components/ToastViewport';
+import DiagnosticsPanel from './components/DiagnosticsPanel';
+import { AppView, Handout, TranscriptSegment, GenerationMode, StudySession, LectureAsset } from './types';
 import { BrainIcon, MenuIcon } from './components/icons';
 import { processTranscript, generateTags } from './services/aiService';
 import { App as CapacitorApp } from '@capacitor/app';
@@ -15,17 +17,21 @@ import { SttConfig } from './types/stt';
 import { loadSttConfig, persistSttConfig, clearStoredSttConfig } from './utils/transcriptionConfig';
 import { STT_PROVIDER_METADATA } from './services/stt';
 import { buildTranscriptText, createId, normalizeImportedTranscript } from './utils/transcript';
+import { loadPersistedSessions, persistSessions } from './utils/sessionStorage';
+import { loadDiagnosticsPreference, persistDiagnosticsPreference } from './utils/diagnosticsConfig';
+import { loadAutoGenerationConfig, persistAutoGenerationConfig } from './utils/autoGenerationConfig';
+import { getCredentialFallbackPreference, setCredentialFallbackPreference } from './utils/credentialPolicy';
+import { clearAllCredentials } from './utils/credentialCleanup';
+import { logEvent } from './utils/logger';
 
 const PROVIDERS = Object.values(PROVIDER_METADATA);
 const STT_PROVIDERS = Object.values(STT_PROVIDER_METADATA);
 
 const getInitialTheme = (): 'light' | 'dark' => {
   const storedTheme = localStorage.getItem('intellinote-theme');
-  // Ensure the stored value is valid
   if (storedTheme === 'light' || storedTheme === 'dark') {
     return storedTheme;
   }
-  // Default to dark for new users
   return 'dark';
 };
 
@@ -44,9 +50,13 @@ const App: React.FC = () => {
   const [apiConfig, setApiConfig] = useState<ApiConfig | null>(null);
   const [sttConfig, setSttConfig] = useState<SttConfig | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(loadDiagnosticsPreference());
+  const [autoGenerationConfig, setAutoGenerationConfig] = useState(loadAutoGenerationConfig());
+  const [credentialFallbackEnabled, setCredentialFallbackEnabled] = useState(getCredentialFallbackPreference());
   const isApiKeyReady = Boolean(apiConfig?.apiKey);
   const isSttKeyReady = Boolean(sttConfig?.apiKey);
   const sessionsRef = useRef<StudySession[]>([]);
+  const autoGenerationTrackerRef = useRef<Record<string, { lastRunAt: number; pendingFinals: number }>>({});
 
   useEffect(() => {
     const checkMobile = () => {
@@ -63,7 +73,6 @@ const App: React.FC = () => {
   }, []);
   
   useEffect(() => {
-    // Handle Android back button
     CapacitorApp.addListener('backButton', ({ canGoBack }) => {
       if (!canGoBack) {
         CapacitorApp.exitApp();
@@ -78,61 +87,14 @@ const App: React.FC = () => {
 
   useEffect(() => {
     try {
-        const storedSessions = localStorage.getItem('intellinote-sessions');
-        if (storedSessions) {
-            setSessions(JSON.parse(storedSessions));
-            return;
-        }
-        const storedLectures = localStorage.getItem('intellinote-lectures');
-        if (storedLectures) {
-            const legacyLectures: LegacyLecture[] = JSON.parse(storedLectures);
-            const migrated = legacyLectures.map(lecture => {
-              const sessionId = createId('session');
-              const assetId = createId('asset');
-              const createdAt = new Date().toISOString();
-              const segments: TranscriptSegment[] = lecture.transcript.map(segment => ({
-                id: createId('segment'),
-                assetId,
-                startMs: Math.round(segment.startTime * 1000),
-                endMs: Math.round(segment.startTime * 1000),
-                text: segment.text,
-                isFinal: true,
-                createdAt,
-              }));
-              const asset: LectureAsset = {
-                id: assetId,
-                sessionId,
-                sourceType: 'import',
-                transcriptText: buildTranscriptText(segments),
-                transcriptPath: undefined,
-                audioPath: undefined,
-                language: 'en-US',
-                createdAt,
-                segments,
-              };
-              return {
-                id: sessionId,
-                title: lecture.title,
-                topic: '',
-                createdAt,
-                updatedAt: createdAt,
-                assets: [asset],
-                handouts: lecture.handouts,
-                organizedNotes: lecture.organizedNotes,
-                organizedNotesStatus: lecture.organizedNotesStatus,
-                studyGuide: lecture.studyGuide,
-                testQuestions: lecture.testQuestions,
-                flashcards: lecture.flashcards,
-                tags: lecture.tags,
-                suggestedTags: lecture.suggestedTags,
-                tagsStatus: lecture.tagsStatus,
-                chatHistory: lecture.chatHistory,
-              } satisfies StudySession;
-            });
-            setSessions(migrated);
+        const { sessions: storedSessions } = loadPersistedSessions();
+        setSessions(storedSessions);
+        if (storedSessions.length > 0) {
+          logEvent('info', 'Sessions loaded', { count: storedSessions.length });
         }
     } catch (e) {
-        console.error("Failed to load lectures from localStorage", e);
+        console.error("Failed to load sessions from localStorage", e);
+        logEvent('error', 'Failed to load sessions', { message: e instanceof Error ? e.message : 'Unknown error' });
     }
   }, []);
 
@@ -142,9 +104,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     try {
-        localStorage.setItem('intellinote-sessions', JSON.stringify(sessions));
+        persistSessions(sessions);
     } catch (e) {
-        console.error("Failed to save lectures to localStorage", e);
+        console.error("Failed to save sessions to localStorage", e);
+        logEvent('error', 'Failed to persist sessions', { message: e instanceof Error ? e.message : 'Unknown error' });
     }
   }, [sessions]);
 
@@ -179,7 +142,6 @@ const App: React.FC = () => {
       document.documentElement.classList.remove('dark');
     }
     localStorage.setItem('intellinote-theme', theme);
-    // Re-initialize Mermaid with the current theme to ensure diagrams match
     mermaid.initialize({ startOnLoad: false, theme: theme === 'dark' ? 'dark' : 'default' });
   }, [theme]);
 
@@ -200,27 +162,35 @@ const App: React.FC = () => {
 
   const triggerAutoGeneration = useCallback(async (session: StudySession) => {
     const transcript = session.assets.flatMap(asset => asset.segments).filter(segment => segment.isFinal);
-    // Generate Organized Notes
+    logEvent('info', 'Auto-generation triggered', { sessionId: session.id, segments: transcript.length });
+
+    const handleNotesSuccess = (notes: string) => {
+      updateSession(session.id, { organizedNotes: notes, organizedNotesStatus: 'success' });
+    };
+    const handleTagsSuccess = (tags: string[]) => {
+      updateSession(session.id, { suggestedTags: tags, tagsStatus: 'success' });
+    };
+
     try {
-        // Use intelligence mode 'false' for default auto-generation
-        const notes = await processTranscript(transcript, GenerationMode.Notes, session.handouts, false);
-        updateSession(session.id, { organizedNotes: notes, organizedNotesStatus: 'success' });
+        const notes = await processTranscript(transcript, GenerationMode.Notes, session.handouts, false, {
+          onRetrySuccess: handleNotesSuccess,
+        });
+        handleNotesSuccess(notes);
     } catch (e) {
         console.error("Failed to auto-generate notes:", e);
         updateSession(session.id, { organizedNotesStatus: 'error' });
     }
     
-    // Generate Tags
     try {
-        const tags = await generateTags(transcript, session.handouts);
-        updateSession(session.id, { suggestedTags: tags, tagsStatus: 'success' });
+        const tags = await generateTags(transcript, session.handouts, { onRetrySuccess: handleTagsSuccess });
+        handleTagsSuccess(tags);
     } catch (e) {
         console.error("Failed to auto-generate tags:", e);
         updateSession(session.id, { tagsStatus: 'error' });
     }
   }, [updateSession]);
 
-  const scheduleAutoGeneration = useCallback((sessionId: string) => {
+  const scheduleAutoGeneration = useCallback((sessionId: string, delayMs: number) => {
     setSessions(prevSessions =>
       prevSessions.map(session =>
         session.id === sessionId
@@ -238,7 +208,7 @@ const App: React.FC = () => {
       if (session) {
         triggerAutoGeneration(session);
       }
-    }, 6000);
+    }, delayMs);
   }, [triggerAutoGeneration]);
 
   const handleCreateSession = useCallback((title: string, topic: string) => {
@@ -313,9 +283,21 @@ const App: React.FC = () => {
       })
     );
     if (hasFinalUpdate) {
-      scheduleAutoGeneration(sessionId);
+      const tracker = autoGenerationTrackerRef.current[sessionId] ?? { lastRunAt: 0, pendingFinals: 0 };
+      tracker.pendingFinals += 1;
+      const now = Date.now();
+      const shouldRun = tracker.pendingFinals >= autoGenerationConfig.finalSegmentBatchSize ||
+        now - tracker.lastRunAt >= autoGenerationConfig.minIntervalMs;
+      if (shouldRun) {
+        tracker.pendingFinals = 0;
+        tracker.lastRunAt = now;
+        autoGenerationTrackerRef.current[sessionId] = tracker;
+        scheduleAutoGeneration(sessionId, autoGenerationConfig.debounceMs);
+      } else {
+        autoGenerationTrackerRef.current[sessionId] = tracker;
+      }
     }
-  }, [scheduleAutoGeneration]);
+  }, [autoGenerationConfig.debounceMs, autoGenerationConfig.finalSegmentBatchSize, autoGenerationConfig.minIntervalMs, scheduleAutoGeneration]);
   
   const handleUpload = () => {
     setIsUploadModalOpen(true);
@@ -352,8 +334,8 @@ const App: React.FC = () => {
     setActiveAssetId(assetId);
     setCurrentView(AppView.Note);
     setIsUploadModalOpen(false);
-    scheduleAutoGeneration(sessionId);
-  }, [handleCreateSession, scheduleAutoGeneration]);
+    scheduleAutoGeneration(sessionId, autoGenerationConfig.debounceMs);
+  }, [autoGenerationConfig.debounceMs, handleCreateSession, scheduleAutoGeneration]);
   
   const handleDeleteLecture = useCallback((idToDelete: string) => {
     if (window.confirm('Are you sure you want to permanently delete this session and all its data?')) {
@@ -398,6 +380,28 @@ const App: React.FC = () => {
     setSttConfig(null);
   }, []);
 
+  const handleClearAllCredentials = useCallback(async () => {
+    await clearAllCredentials();
+    setApiConfig(null);
+    setSttConfig(null);
+    setCredentialFallbackEnabled(false);
+  }, []);
+
+  const handleToggleDiagnostics = useCallback((enabled: boolean) => {
+    setDiagnosticsEnabled(enabled);
+    persistDiagnosticsPreference(enabled);
+  }, []);
+
+  const handleToggleCredentialFallback = useCallback((enabled: boolean) => {
+    setCredentialFallbackEnabled(enabled);
+    setCredentialFallbackPreference(enabled);
+  }, []);
+
+  const handleSaveAutoGenerationConfig = useCallback((config) => {
+    setAutoGenerationConfig(config);
+    persistAutoGenerationConfig(config);
+  }, []);
+
   const activeSession = sessions.find(l => l.id === activeSessionId);
 
   const renderMainContent = () => {
@@ -417,7 +421,6 @@ const App: React.FC = () => {
             if (activeSession) {
                 return <MainPanel theme={theme} session={activeSession} activeAssetId={activeAssetId} onSelectAsset={setActiveAssetId} updateSession={updateSession} isMobile={isMobile} onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} isApiKeyReady={isApiKeyReady} onOpenSettings={() => setIsSettingsModalOpen(true)} />;
             }
-            // Fallback to welcome if no active lecture somehow
             setCurrentView(AppView.Welcome);
             return null;
         case AppView.Welcome:
@@ -457,7 +460,8 @@ const App: React.FC = () => {
             onClick={() => setIsSidebarOpen(false)}
         />
       )}
-      <div className={`
+      <div className={
+        `
         transform transition-transform duration-300 ease-in-out
         ${isMobile ? 'fixed top-0 left-0 h-full z-30' : 'relative'}
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
@@ -490,6 +494,7 @@ const App: React.FC = () => {
         apiConfig={apiConfig}
         onSaveApiConfig={handleSaveApiConfig}
         onClearApiConfig={handleClearApiConfig}
+        onClearAllCredentials={handleClearAllCredentials}
         sttConfig={sttConfig}
         onSaveSttConfig={handleSaveSttConfig}
         onClearSttConfig={handleClearSttConfig}
@@ -498,7 +503,15 @@ const App: React.FC = () => {
         isApiKeyReady={isApiKeyReady}
         theme={theme}
         onToggleTheme={toggleTheme}
+        diagnosticsEnabled={diagnosticsEnabled}
+        onToggleDiagnostics={handleToggleDiagnostics}
+        credentialFallbackEnabled={credentialFallbackEnabled}
+        onToggleCredentialFallback={handleToggleCredentialFallback}
+        autoGenerationConfig={autoGenerationConfig}
+        onSaveAutoGenerationConfig={handleSaveAutoGenerationConfig}
       />
+      <ToastViewport />
+      <DiagnosticsPanel isOpen={diagnosticsEnabled} onClose={() => handleToggleDiagnostics(false)} />
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import { StreamingSttConfig, SttInterimResult, SttFinalResult } from '../../types/stt';
+import type { SttError } from './errors';
 
 export interface StreamingSttSession {
   sendAudioFrame: (pcmFrame: Int16Array) => void;
@@ -11,7 +12,7 @@ export interface StreamingSttProvider {
     callbacks: {
       onInterim: (result: SttInterimResult) => void;
       onFinal: (result: SttFinalResult) => void;
-      onError: (error: Error) => void;
+      onError: (error: SttError) => void;
       onClose: () => void;
     }
   ) => Promise<StreamingSttSession>;

@@ -249,9 +249,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
         updateSession(session.id, { [statusKey]: 'generating' });
     }
 
-    try {
-      const result = await processTranscript(sessionTranscript, mode, session.handouts, useIntelligenceMode);
-      
+    const handleResult = (result: string) => {
       const updates: Partial<StudySession> = statusKey ? { [statusKey]: 'success' } : {};
       switch (activeTab) {
         case 'notes': updates.organizedNotes = result; break;
@@ -259,6 +257,13 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
         case 'questions': updates.testQuestions = result; break;
       }
       updateSession(session.id, updates);
+    };
+
+    try {
+      const result = await processTranscript(sessionTranscript, mode, session.handouts, useIntelligenceMode, {
+        onRetrySuccess: handleResult,
+      });
+      handleResult(result);
     } catch (e) {
       console.error("Error generating content:", e);
       if (statusKey) {
@@ -273,11 +278,13 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
       if (!isApiKeyReady) return;
       setIsLoading(true);
       try {
-          const cards = await generateFlashcards(sessionTranscript, session.handouts, flashcardCount, useIntelligenceMode);
-          updateSession(session.id, { flashcards: cards });
+          const updateCards = (cards: Flashcard[]) => updateSession(session.id, { flashcards: cards });
+          const cards = await generateFlashcards(sessionTranscript, session.handouts, flashcardCount, useIntelligenceMode, {
+            onRetrySuccess: updateCards,
+          });
+          updateCards(cards);
       } catch (error) {
           console.error(error);
-          alert("Sorry, an error occurred while generating flashcards. Please try again.");
       } finally {
           setIsLoading(false);
       }
@@ -416,27 +423,38 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
     updateSession(session.id, { chatHistory: newHistory });
     const messageToSend = chatInput;
     setChatInput('');
-    setIsChatLoading(true);
 
     try {
-        const stream = await getChatResponseStream(session.chatHistory, messageToSend, sessionTranscript, session.handouts, useSearchGrounding, useIntelligenceMode);
-        let currentResponse = '';
-        let sources: GroundingSource[] = [];
+        const consumeStream = async (stream: AsyncGenerator<{ textDelta: string; sources?: GroundingSource[] }>) => {
+            let currentResponse = '';
+            let sources: GroundingSource[] = [];
 
-        updateSession(session.id, { chatHistory: [...newHistory, {role: 'model', content: ''}] });
+            updateSession(session.id, { chatHistory: [...newHistory, {role: 'model', content: ''}] });
 
-        for await (const chunk of stream) {
-            currentResponse += chunk.textDelta;
-            if (chunk.sources && chunk.sources.length > 0) {
-                chunk.sources.forEach(source => {
-                    if (!sources.some(s => s.uri === source.uri)) {
-                        sources.push(source);
-                    }
-                });
+            for await (const chunk of stream) {
+                currentResponse += chunk.textDelta;
+                if (chunk.sources && chunk.sources.length > 0) {
+                    chunk.sources.forEach(source => {
+                        if (!sources.some(s => s.uri === source.uri)) {
+                            sources.push(source);
+                        }
+                    });
+                }
+
+                updateSession(session.id, { chatHistory: [...newHistory, { role: 'model', content: currentResponse, sources: sources.length > 0 ? sources : undefined }] });
             }
+        };
 
-            updateSession(session.id, { chatHistory: [...newHistory, { role: 'model', content: currentResponse, sources: sources.length > 0 ? sources : undefined }] });
-        }
+        const runChatStream = async (stream: AsyncGenerator<{ textDelta: string; sources?: GroundingSource[] }>) => {
+            setIsChatLoading(true);
+            await consumeStream(stream);
+            setIsChatLoading(false);
+        };
+
+        const stream = await getChatResponseStream(session.chatHistory, messageToSend, sessionTranscript, session.handouts, useSearchGrounding, useIntelligenceMode, {
+          onRetrySuccess: runChatStream,
+        });
+        await runChatStream(stream);
     } catch (error) {
         console.error("Chat error:", error);
         updateSession(session.id, { chatHistory: [...newHistory, { role: 'model', content: "Sorry, I encountered an error." }] });
@@ -529,9 +547,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
         }
     }
 
-    try {
-        const result = await editTranscriptWithAi(textToEdit, mode, useIntelligenceMode, prompt);
-        
+    const handleResult = (result: string) => {
         if (mode === AiEditMode.Topics) {
             setIdentifiedTopics(result);
             setTopicsModalOpen(true);
@@ -547,6 +563,13 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
             setEditedTranscript(result);
         }
         setSaveStatus('unsaved');
+    };
+
+    try {
+        const result = await editTranscriptWithAi(textToEdit, mode, useIntelligenceMode, prompt, {
+          onRetrySuccess: handleResult,
+        });
+        handleResult(result);
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
         setAiEditError(errorMessage);

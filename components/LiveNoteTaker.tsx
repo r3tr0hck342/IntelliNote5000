@@ -1,9 +1,13 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { MicIcon, StopIcon, PauseIcon, PlayIcon } from './icons';
 import { LectureAsset, StudySession, TranscriptSegment } from '../types';
 import { getRequiredSttConfig } from '../utils/transcriptionConfig';
 import { createStreamingSttProvider } from '../services/stt';
 import { buildTranscriptText, createId, finalizeSegment, upsertInterimSegment } from '../utils/transcript';
+import { logEvent } from '../utils/logger';
+import { pushToast } from '../utils/toastStore';
+import { RingBuffer } from '../utils/ringBuffer';
+import type { SttError } from '../services/stt/errors';
 
 interface LiveNoteTakerProps {
     isSttReady: boolean;
@@ -13,6 +17,11 @@ interface LiveNoteTakerProps {
     onCreateLiveAsset: (sessionId: string, sourceType: LectureAsset['sourceType'], language: string) => string;
     onTranscriptUpdate: (sessionId: string, assetId: string, segments: TranscriptSegment[], transcriptText: string, hasFinalUpdate: boolean, audioPath?: string) => void;
 }
+
+const AUDIO_BUFFER_CAPACITY = 40;
+const AUDIO_FLUSH_INTERVAL_MS = 50;
+const AUDIO_FRAMES_PER_FLUSH = 4;
+const INTERIM_UPDATE_DEBOUNCE_MS = 1500;
 
 const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
     isSttReady,
@@ -30,19 +39,15 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
     const [newSessionTopic, setNewSessionTopic] = useState('');
     const supportsLiveTranscription = Boolean(isSttReady);
 
-    // Store transcript as segments
-    const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
+    const [finalSegments, setFinalSegments] = useState<TranscriptSegment[]>([]);
     const [interimText, setInterimText] = useState('');
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [audioLevel, setAudioLevel] = useState(0);
     
-    // State for connection status
     type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error' | 'closed';
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
 
-    // Refs to hold the latest state for callbacks that can't be re-created easily
-    const transcriptRef = useRef(transcript);
-    useEffect(() => { transcriptRef.current = transcript; }, [transcript]);
+    const segmentsRef = useRef<TranscriptSegment[]>([]);
     const interimTextRef = useRef(interimText);
     useEffect(() => { interimTextRef.current = interimText; }, [interimText]);
     const isPausedRef = useRef(isPaused);
@@ -58,8 +63,11 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
     const audioChunksRef = useRef<Blob[]>([]);
     const activeSessionIdRef = useRef<string | null>(null);
     const activeAssetIdRef = useRef<string | null>(null);
-    
     const startTimeRef = useRef<number>(0);
+    const audioBufferRef = useRef(new RingBuffer<Int16Array>(AUDIO_BUFFER_CAPACITY));
+    const audioFlushRef = useRef<number | null>(null);
+    const droppedFramesRef = useRef(0);
+    const interimFlushRef = useRef<number | null>(null);
 
     const pushTranscriptUpdate = useCallback((segments: TranscriptSegment[], hasFinalUpdate: boolean, audioPath?: string) => {
         const sessionId = activeSessionIdRef.current;
@@ -67,6 +75,14 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
         if (!sessionId || !assetId) return;
         onTranscriptUpdate(sessionId, assetId, segments, buildTranscriptText(segments), hasFinalUpdate, audioPath);
     }, [onTranscriptUpdate]);
+
+    const scheduleInterimFlush = useCallback(() => {
+        if (interimFlushRef.current) return;
+        interimFlushRef.current = window.setTimeout(() => {
+            pushTranscriptUpdate(segmentsRef.current, false);
+            interimFlushRef.current = null;
+        }, INTERIM_UPDATE_DEBOUNCE_MS);
+    }, [pushTranscriptUpdate]);
 
     const stopRecording = useCallback((isError = false) => {
         setIsRecording(false);
@@ -84,6 +100,15 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             window.clearInterval(timerRef.current);
             timerRef.current = null;
         }
+        if (audioFlushRef.current) {
+            window.clearInterval(audioFlushRef.current);
+            audioFlushRef.current = null;
+        }
+        if (interimFlushRef.current) {
+            window.clearTimeout(interimFlushRef.current);
+            interimFlushRef.current = null;
+        }
+        audioBufferRef.current.clear();
         setElapsedSeconds(0);
         setAudioLevel(0);
 
@@ -103,24 +128,29 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                     isFinal: true,
                     createdAt,
                 };
-                const updated = finalizeSegment(transcriptRef.current, finalSegment, interimSegmentIdRef.current ?? undefined);
-                pushTranscriptUpdate(updated, true);
+                segmentsRef.current = finalizeSegment(segmentsRef.current, finalSegment, interimSegmentIdRef.current ?? undefined);
+                pushTranscriptUpdate(segmentsRef.current, true);
+                setFinalSegments(segmentsRef.current);
                 interimSegmentIdRef.current = null;
             }
-            setTranscript([]);
+            segmentsRef.current = [];
+            setFinalSegments([]);
             setInterimText('');
         }
 
         if (connectionStatus !== 'error') {
              setConnectionStatus('idle');
         }
+        logEvent('info', 'STT session stopped', { reason: isError ? 'error' : 'user' });
     }, [connectionStatus, pushTranscriptUpdate]);
 
     const startRecording = async () => {
-        setTranscript([]);
+        segmentsRef.current = [];
+        setFinalSegments([]);
         setInterimText('');
         setError(null);
         interimSegmentIdRef.current = null;
+        droppedFramesRef.current = 0;
 
         try {
             if (!supportsLiveTranscription) {
@@ -145,8 +175,9 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             setConnectionStatus('connecting');
             startTimeRef.current = Date.now();
             setElapsedSeconds(0);
-            
+
             const sttConfig = getRequiredSttConfig();
+            logEvent('info', 'Initializing STT provider', { provider: sttConfig.provider, language: sttConfig.language });
             const provider = createStreamingSttProvider(sttConfig);
             mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({
                 audio: {
@@ -172,7 +203,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                 reader.onloadend = () => {
                     const base64 = typeof reader.result === 'string' ? reader.result : undefined;
                     if (base64) {
-                        pushTranscriptUpdate(transcriptRef.current, false, base64);
+                        pushTranscriptUpdate(segmentsRef.current, false, base64);
                     }
                 };
                 reader.readAsDataURL(blob);
@@ -202,11 +233,8 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                             speaker: result.words?.[0]?.speaker,
                             createdAt,
                         };
-                        setTranscript(prev => {
-                            const updated = upsertInterimSegment(prev, segment);
-                            pushTranscriptUpdate(updated, false);
-                            return updated;
-                        });
+                        segmentsRef.current = upsertInterimSegment(segmentsRef.current, segment);
+                        scheduleInterimFlush();
                         setInterimText(result.text);
                     },
                     onFinal: (result) => {
@@ -222,29 +250,45 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                             speaker: result.words?.[0]?.speaker,
                             createdAt,
                         };
-                        setTranscript(prev => {
-                            const updated = finalizeSegment(prev, segment, interimSegmentIdRef.current ?? undefined);
-                            interimSegmentIdRef.current = null;
-                            pushTranscriptUpdate(updated, true);
-                            return updated;
-                        });
+                        segmentsRef.current = finalizeSegment(segmentsRef.current, segment, interimSegmentIdRef.current ?? undefined);
+                        interimSegmentIdRef.current = null;
+                        setFinalSegments(segmentsRef.current);
+                        pushTranscriptUpdate(segmentsRef.current, true);
+                        logEvent('debug', 'Transcript segment finalized', { finalSegments: segmentsRef.current.length });
                         setInterimText('');
                     },
-                    onError: (error) => {
-                        console.error('Live session error:', error);
-                        setError('A connection error occurred.');
+                    onError: (err: SttError) => {
+                        console.error('Live session error:', err);
+                        const message = err.code === 'auth_failed'
+                            ? 'Transcription authentication failed. Check your API key.'
+                            : 'A streaming error occurred. Please retry.';
+                        setError(message);
+                        pushToast({
+                            title: 'Transcription error',
+                            description: message,
+                            variant: 'error',
+                            action: err.retryable
+                                ? {
+                                    label: 'Retry',
+                                    onAction: () => startRecording(),
+                                }
+                                : undefined,
+                        });
                         setConnectionStatus('error');
+                        logEvent('error', 'STT error', { code: err.code, retryable: err.retryable });
                         stopRecording(true);
                     },
                     onClose: () => {
                         if (connectionStatus !== 'error') {
                             setConnectionStatus('closed');
                         }
+                        logEvent('info', 'STT connection closed');
                     },
                 }
             );
             
             setConnectionStatus('connected');
+            logEvent('info', 'STT connection established');
             if (!mediaStreamRef.current) return;
             audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
             const source = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
@@ -259,8 +303,29 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                 for (let i = 0; i < inputData.length; i++) {
                     int16[i] = inputData[i] < 0 ? inputData[i] * 32768 : inputData[i] * 32767;
                 }
-                streamingSessionRef.current?.sendAudioFrame(int16);
+                const buffer = audioBufferRef.current;
+                if (buffer.length >= AUDIO_BUFFER_CAPACITY) {
+                    droppedFramesRef.current += 1;
+                    if (droppedFramesRef.current % 10 === 0) {
+                        logEvent('warn', 'Audio buffer backpressure', { droppedFrames: droppedFramesRef.current });
+                    }
+                }
+                buffer.push(int16);
             };
+
+            audioFlushRef.current = window.setInterval(() => {
+                if (isPausedRef.current) return;
+                const session = streamingSessionRef.current;
+                if (!session) return;
+                const buffer = audioBufferRef.current;
+                let sent = 0;
+                while (sent < AUDIO_FRAMES_PER_FLUSH) {
+                    const frame = buffer.shift();
+                    if (!frame) break;
+                    session.sendAudioFrame(frame);
+                    sent += 1;
+                }
+            }, AUDIO_FLUSH_INTERVAL_MS);
 
             source.connect(scriptProcessorRef.current);
             scriptProcessorRef.current.connect(audioContextRef.current.destination);
@@ -275,6 +340,15 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                 ? "Please configure your transcription API key in settings to use live transcription."
                 : "Could not access microphone. Please check permissions.";
             setError(errorMessage);
+            pushToast({
+                title: 'Microphone error',
+                description: errorMessage,
+                variant: 'error',
+                action: {
+                    label: 'Open Settings',
+                    onAction: onOpenSettings,
+                },
+            });
             setIsRecording(false);
             setConnectionStatus('error');
         }
@@ -337,7 +411,10 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
         )
     }
     
-    const transcriptText = transcript.filter(segment => segment.isFinal).map(s => s.text).join(' ');
+    const transcriptText = useMemo(() => {
+        const finalText = finalSegments.map(s => s.text).join(' ');
+        return finalText;
+    }, [finalSegments]);
 
     return (
         <div className="relative flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800 p-8 text-center">

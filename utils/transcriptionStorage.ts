@@ -1,5 +1,6 @@
 import type { SttConfig } from '../types/stt';
 import { isTauri } from './native';
+import { getCredentialFallbackPreference } from './credentialPolicy';
 
 const STORAGE_KEY = 'intellinote-stt-config';
 const CAP_STORAGE_KEY = 'intellinote_stt_config';
@@ -12,6 +13,7 @@ const isCapacitorNative = () => {
 
 const fallbackStore = {
   load: (): SttConfig | null => {
+    if (!getCredentialFallbackPreference()) return null;
     if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
     const value = localStorage.getItem(STORAGE_KEY);
     if (!value) return null;
@@ -22,10 +24,12 @@ const fallbackStore = {
     }
   },
   save: (config: SttConfig) => {
+    if (!getCredentialFallbackPreference()) return;
     if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   },
   clear: () => {
+    if (!getCredentialFallbackPreference()) return;
     if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
     localStorage.removeItem(STORAGE_KEY);
   },

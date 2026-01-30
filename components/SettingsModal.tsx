@@ -5,6 +5,7 @@ import { ProviderId } from '../types/ai';
 import { ProviderMetadata } from '../services/providers/types';
 import { SttConfig, SttProviderId } from '../types/stt';
 import { SttProviderMetadata } from '../services/stt';
+import type { AutoGenerationConfig } from '../utils/autoGenerationConfig';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -15,11 +16,18 @@ interface SettingsModalProps {
   sttConfig: SttConfig | null;
   onSaveSttConfig: (config: SttConfig) => Promise<void>;
   onClearSttConfig: () => Promise<void>;
+  onClearAllCredentials: () => Promise<void>;
   availableProviders: ProviderMetadata[];
   availableSttProviders: SttProviderMetadata[];
   isApiKeyReady: boolean;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  diagnosticsEnabled: boolean;
+  onToggleDiagnostics: (enabled: boolean) => void;
+  credentialFallbackEnabled: boolean;
+  onToggleCredentialFallback: (enabled: boolean) => void;
+  autoGenerationConfig: AutoGenerationConfig;
+  onSaveAutoGenerationConfig: (config: AutoGenerationConfig) => void;
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -31,11 +39,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   sttConfig,
   onSaveSttConfig,
   onClearSttConfig,
+  onClearAllCredentials,
   availableProviders,
   availableSttProviders,
   isApiKeyReady,
   theme,
   onToggleTheme,
+  diagnosticsEnabled,
+  onToggleDiagnostics,
+  credentialFallbackEnabled,
+  onToggleCredentialFallback,
+  autoGenerationConfig,
+  onSaveAutoGenerationConfig,
 }) => {
   const defaultProvider = useMemo<ProviderId>(() => availableProviders[0]?.id ?? 'gemini', [availableProviders]);
   const defaultSttProvider = useMemo<SttProviderId>(() => availableSttProviders[0]?.id ?? 'deepgram', [availableSttProviders]);
@@ -48,6 +63,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [sttModel, setSttModel] = useState(sttConfig?.model ?? '');
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingStt, setIsSavingStt] = useState(false);
+  const [autoGenConfig, setAutoGenConfig] = useState(autoGenerationConfig);
 
   useEffect(() => {
     setSelectedProvider(apiConfig?.provider ?? defaultProvider);
@@ -61,6 +77,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     setSttLanguage(sttConfig?.language ?? '');
     setSttModel(sttConfig?.model ?? '');
   }, [sttConfig, defaultSttProvider]);
+
+  useEffect(() => {
+    setAutoGenConfig(autoGenerationConfig);
+  }, [autoGenerationConfig]);
 
   if (!isOpen) return null;
 
@@ -125,7 +145,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           <section>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">AI Provider</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              IntelliNote runs entirely on your credentials. Choose your preferred provider and paste your API key below. Keys are stored locally (or in secure storage on native builds) and never bundled into release binaries.
+              IntelliNote runs entirely on your credentials. Choose your preferred provider and paste your API key below. Keys are stored in secure storage on native builds. Browser storage is optional and must be explicitly enabled below.
             </p>
             <div className="space-y-4">
               <div>
@@ -264,10 +284,93 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
           </section>
+
+          <section>
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Diagnostics & Storage</h3>
+            <div className="space-y-4">
+              <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg flex items-center justify-between">
+                <div>
+                  <div className="font-medium text-gray-800 dark:text-gray-200">Diagnostics panel</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Shows recent provider events and errors.</div>
+                </div>
+                <label className="inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={diagnosticsEnabled}
+                    onChange={(event) => onToggleDiagnostics(event.target.checked)}
+                    className="sr-only"
+                  />
+                  <div className={`w-11 h-6 rounded-full ${diagnosticsEnabled ? 'bg-indigo-600' : 'bg-gray-400'} relative`}>
+                    <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${diagnosticsEnabled ? 'translate-x-5' : ''}`} />
+                  </div>
+                </label>
+              </div>
+              <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg flex items-center justify-between">
+                <div>
+                  <div className="font-medium text-gray-800 dark:text-gray-200">Allow browser storage fallback</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Stores credentials in localStorage on web builds (less secure).</div>
+                </div>
+                <label className="inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={credentialFallbackEnabled}
+                    onChange={(event) => onToggleCredentialFallback(event.target.checked)}
+                    className="sr-only"
+                  />
+                  <div className={`w-11 h-6 rounded-full ${credentialFallbackEnabled ? 'bg-indigo-600' : 'bg-gray-400'} relative`}>
+                    <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${credentialFallbackEnabled ? 'translate-x-5' : ''}`} />
+                  </div>
+                </label>
+              </div>
+              <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg space-y-3">
+                <div className="font-medium text-gray-800 dark:text-gray-200">Auto-generation cadence</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Debounce (ms)</label>
+                    <input
+                      type="number"
+                      min={1000}
+                      value={autoGenConfig.debounceMs}
+                      onChange={(event) => setAutoGenConfig({ ...autoGenConfig, debounceMs: Number(event.target.value) })}
+                      className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min interval (ms)</label>
+                    <input
+                      type="number"
+                      min={5000}
+                      value={autoGenConfig.minIntervalMs}
+                      onChange={(event) => setAutoGenConfig({ ...autoGenConfig, minIntervalMs: Number(event.target.value) })}
+                      className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Final segments per run</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={autoGenConfig.finalSegmentBatchSize}
+                      onChange={(event) => setAutoGenConfig({ ...autoGenConfig, finalSegmentBatchSize: Number(event.target.value) })}
+                      className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => onSaveAutoGenerationConfig(autoGenConfig)}
+                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+                  >
+                    Save Diagnostics Settings
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
 
         <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-between flex-wrap gap-3">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={async () => {
                 await onClearApiConfig();
@@ -285,6 +388,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600"
             >
               Clear Transcription Key
+            </button>
+            <button
+              onClick={async () => {
+                await onClearAllCredentials();
+                setApiKey('');
+                setSttApiKey('');
+              }}
+              className="px-4 py-2 text-sm font-medium text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-900/40 rounded-md hover:bg-red-100 dark:hover:bg-red-900"
+            >
+              Clear All Credentials
             </button>
           </div>
           <div className="flex gap-2">
