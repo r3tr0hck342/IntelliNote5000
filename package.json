@@ -18,6 +18,7 @@
     "sync-mobile": "npm run build && npx cap sync",
     "verify:platforms": "ts-node --esm verification_scripts/verify_platforms.ts",
     "verify:providers": "ts-node --esm verification_scripts/verify_providers.ts",
+    "verify:release": "npm run lint && npm run typecheck && npm run test && npm run build && node tools/verify-release.mjs",
     "test:transcript": "ts-node --esm verification_scripts/transcript_pipeline.test.ts",
     "test:unit": "ts-node --esm verification_scripts/unit.test.ts",
     "test": "npm run test:unit",
