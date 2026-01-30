@@ -1,12 +1,27 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { Handout, StudySession } from '../types';
 import { UploadIcon, FileTextIcon, XIcon } from './icons';
 import { parseFile } from '../utils/fileParser';
+import { estimateTranscriptStats, normalizeTranscriptText } from '../utils/transcript';
 
+type ImportPipelineStage = 'notes' | 'study-guide' | 'test-questions' | 'flashcards' | 'tags';
+type ImportPipelineStatus = 'queued' | 'running' | 'success' | 'error' | 'cancelled';
+
+interface ImportPipelineProgress {
+  stage: ImportPipelineStage;
+  status: ImportPipelineStatus;
+  error?: string;
+}
 
 interface FileUploadModalProps {
   onClose: () => void;
-  onCreateLecture: (data: { title: string; transcript: string; handouts: Handout[]; sessionId?: string }) => void;
+  onCreateLecture: (data: {
+    title: string;
+    transcript: string;
+    handouts: Handout[];
+    sessionId?: string;
+    onProgress?: (progress: ImportPipelineProgress) => void;
+  }) => { cancel: () => void; done: Promise<void> };
   sessions: StudySession[];
 }
 
@@ -17,6 +32,18 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
   const [isParsing, setIsParsing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string>('new');
+  const [transcriptFileName, setTranscriptFileName] = useState<string | null>(null);
+  const [importController, setImportController] = useState<{ cancel: () => void; done: Promise<void> } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<Record<ImportPipelineStage, ImportPipelineStatus>>({
+    notes: 'queued',
+    tags: 'queued',
+    'study-guide': 'queued',
+    'test-questions': 'queued',
+    flashcards: 'queued',
+  });
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importComplete, setImportComplete] = useState(false);
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -47,24 +74,91 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
     handleFiles(e.dataTransfer.files);
   };
 
+  const handleTranscriptFile = (file: File | null) => {
+    if (!file) return;
+    const isSupported = file.name.endsWith('.txt') || file.name.endsWith('.md') || file.type.startsWith('text/');
+    if (!isSupported) {
+      alert('Unsupported transcript format. Please upload a .txt or .md file.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = event => {
+      const content = event.target?.result as string;
+      if (content) {
+        setTranscript(content);
+        setTranscriptFileName(file.name);
+      }
+    };
+    reader.onerror = () => {
+      alert(`Failed to read ${file.name}. Please try again.`);
+    };
+    reader.readAsText(file);
+  };
+
   const handleCreate = () => {
     if (!transcript.trim()) {
       alert('A transcript is required to use the AI features.');
       return;
     }
-    onCreateLecture({ title, transcript, handouts, sessionId: selectedSessionId === 'new' ? undefined : selectedSessionId });
+    setIsImporting(true);
+    setImportComplete(false);
+    setImportError(null);
+    setImportProgress({
+      notes: 'queued',
+      tags: 'queued',
+      'study-guide': 'queued',
+      'test-questions': 'queued',
+      flashcards: 'queued',
+    });
+    const controller = onCreateLecture({
+      title,
+      transcript,
+      handouts,
+      sessionId: selectedSessionId === 'new' ? undefined : selectedSessionId,
+      onProgress: (progress) => {
+        setImportProgress(prev => ({ ...prev, [progress.stage]: progress.status }));
+        if (progress.status === 'error' && progress.error) {
+          setImportError(progress.error);
+        }
+      },
+    });
+    setImportController(controller);
+    controller.done
+      .then(() => {
+        setImportComplete(true);
+      })
+      .catch((error: Error) => {
+        setImportError(error.message);
+      })
+      .finally(() => {
+        setIsImporting(false);
+      });
   };
   
   const removeHandout = (index: number) => {
       setHandouts(prev => prev.filter((_, i) => i !== index));
   }
 
+  const handleCancelPipeline = () => {
+    if (importController) {
+      importController.cancel();
+    }
+    setIsImporting(false);
+  };
+
+  const stats = useMemo(() => estimateTranscriptStats(transcript), [transcript]);
+  const previewText = useMemo(() => normalizeTranscriptText(transcript).slice(0, 800), [transcript]);
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
         <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">Import Transcript or Handouts</h2>
-          <button onClick={onClose} className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
+          <button
+            onClick={isImporting ? undefined : onClose}
+            disabled={isImporting}
+            className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white disabled:opacity-50"
+          >
             <XIcon className="w-6 h-6" />
           </button>
         </div>
@@ -77,6 +171,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
                 id="session-select"
                 value={selectedSessionId}
                 onChange={(e) => setSelectedSessionId(e.target.value)}
+                disabled={isImporting}
                 className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-gray-800 dark:text-gray-200 focus:ring-indigo-500 focus:border-indigo-500"
               >
                 <option value="new">Create new session</option>
@@ -88,16 +183,48 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
             {selectedSessionId === 'new' && (
               <div>
                 <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Session Title</label>
-                <input
-                  id="title"
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g., Introduction to Quantum Physics"
-                  className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-gray-800 dark:text-gray-200 focus:ring-indigo-500 focus:border-indigo-500"
-                />
-              </div>
+                  <input
+                    id="title"
+                    type="text"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    disabled={isImporting}
+                    placeholder="e.g., Introduction to Quantum Physics"
+                    className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-gray-800 dark:text-gray-200 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
             )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Transcript File (.txt, .md)</label>
+            <div className="flex items-center space-x-3">
+              <label className="cursor-pointer text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 font-medium">
+                Choose file
+                <input
+                  type="file"
+                  className="sr-only"
+                  onChange={(e) => handleTranscriptFile(e.target.files?.[0] ?? null)}
+                  accept=".txt,.md,text/plain,text/markdown"
+                  disabled={isImporting}
+                />
+              </label>
+              {transcriptFileName && (
+                <div className="flex items-center text-sm text-gray-600 dark:text-gray-400 space-x-2">
+                  <span className="truncate max-w-[220px]">{transcriptFileName}</span>
+                  <button
+                    onClick={() => {
+                      setTranscriptFileName(null);
+                      setTranscript('');
+                    }}
+                    className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
+                    disabled={isImporting}
+                  >
+                    <XIcon className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           <div>
@@ -108,10 +235,22 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
               id="transcript"
               value={transcript}
               onChange={(e) => setTranscript(e.target.value)}
+              disabled={isImporting}
               rows={8}
               placeholder="Paste the full transcript here. This is required for all AI features."
               className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-gray-800 dark:text-gray-200 focus:ring-indigo-500 focus:border-indigo-500"
             />
+            <div className="mt-2 text-sm text-gray-500 dark:text-gray-400 flex flex-wrap gap-3">
+              <span>{stats.charCount.toLocaleString()} characters</span>
+              <span>{stats.wordCount.toLocaleString()} words</span>
+              <span>~{stats.estimatedMinutes} min read</span>
+            </div>
+            {previewText && (
+              <div className="mt-3 p-3 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-sm text-gray-700 dark:text-gray-300 max-h-40 overflow-y-auto whitespace-pre-wrap">
+                {previewText}
+                {previewText.length < normalizeTranscriptText(transcript).length && '…'}
+              </div>
+            )}
           </div>
 
           <div>
@@ -129,7 +268,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
               <p className="text-gray-600 dark:text-gray-400">Drag & drop files here, or</p>
               <label htmlFor="file-upload" className="cursor-pointer text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 font-medium">
                 browse to upload
-                <input id="file-upload" type="file" multiple className="sr-only" onChange={(e) => handleFiles(e.target.files)} accept=".pdf,.docx,.txt,.md,.text" />
+                <input id="file-upload" type="file" multiple className="sr-only" onChange={(e) => handleFiles(e.target.files)} accept=".pdf,.docx,.txt,.md,.text" disabled={isImporting} />
               </label>
             </div>
           </div>
@@ -146,7 +285,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
                       <FileTextIcon className="w-5 h-5 mr-2 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                       <span className="text-gray-800 dark:text-gray-200 truncate">{handout.name}</span>
                     </div>
-                     <button onClick={() => removeHandout(index)} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white flex-shrink-0">
+                     <button onClick={() => removeHandout(index)} disabled={isImporting} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white flex-shrink-0 disabled:opacity-50">
                         <XIcon className="w-4 h-4" />
                     </button>
                   </li>
@@ -154,18 +293,53 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
               </ul>
             </div>
           )}
+
+          {(isImporting || importComplete || importError) && (
+            <div className="border border-gray-200 dark:border-gray-700 rounded-md p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">AI Import Pipeline</h3>
+              <ul className="space-y-2 text-sm">
+                {(['notes', 'study-guide', 'test-questions', 'flashcards', 'tags'] as ImportPipelineStage[]).map(stage => (
+                  <li key={stage} className="flex items-center justify-between">
+                    <span className="capitalize text-gray-600 dark:text-gray-400">{stage.replace('-', ' ')}</span>
+                    <span className="text-gray-700 dark:text-gray-300">
+                      {importProgress[stage] === 'running' && 'Running…'}
+                      {importProgress[stage] === 'queued' && 'Queued'}
+                      {importProgress[stage] === 'success' && 'Done'}
+                      {importProgress[stage] === 'error' && 'Error'}
+                      {importProgress[stage] === 'cancelled' && 'Cancelled'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {importError && (
+                <p className="text-sm text-red-500 dark:text-red-400">Error: {importError}</p>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600">
-            Cancel
+          <button
+            onClick={onClose}
+            disabled={isImporting}
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
+          >
+            {importComplete ? 'Close' : 'Cancel'}
           </button>
+          {isImporting && (
+            <button
+              onClick={handleCancelPipeline}
+              className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-md hover:bg-red-600"
+            >
+              Cancel AI Pipeline
+            </button>
+          )}
           <button
             onClick={handleCreate}
-            disabled={isParsing || !transcript.trim()}
+            disabled={isParsing || !transcript.trim() || isImporting}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed"
           >
-            Import Transcript
+            {isImporting ? 'Importing...' : 'Import Transcript'}
           </button>
         </div>
       </div>
