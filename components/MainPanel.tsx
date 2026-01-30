@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { Lecture, GenerationMode, Flashcard, Handout, TranscriptSegment, ChatMessage, GroundingSource, AiEditMode } from '../types';
+import { StudySession, GenerationMode, Flashcard, Handout, TranscriptSegment, ChatMessage, GroundingSource, AiEditMode } from '../types';
 import { processTranscript, generateFlashcards, getChatResponseStream, editTranscriptWithAi } from '../services/aiService';
 import { DownloadIcon, NoteIcon, ArrowLeftIcon, ArrowRightIcon, RefreshIcon, PaperclipIcon, TagIcon, XIcon, EditIcon, ChatBubbleIcon, SendIcon, UploadIcon, FileTextIcon, BrainIcon, SparklesIcon, LayersIcon, BookOpenIcon, QuestionMarkCircleIcon, MenuIcon, SearchIcon, ChevronUpIcon, ChevronDownIcon } from './icons';
 import { parseFile } from '../utils/fileParser';
 import ReactQuill from 'react-quill';
 import TurndownService from 'turndown';
 import { isTauri, nativeSave } from '../utils/native';
+import { buildTranscriptText, normalizeImportedTranscript } from '../utils/transcript';
 
 const FlashcardViewer: React.FC<{ cards: Flashcard[] }> = ({ cards }) => {
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -69,13 +70,15 @@ const FlashcardViewer: React.FC<{ cards: Flashcard[] }> = ({ cards }) => {
 
 
 interface MainPanelProps {
-  lecture: Lecture;
-  updateLecture: (id: string, updates: Partial<Lecture>) => void;
+  session: StudySession;
+  updateSession: (id: string, updates: Partial<StudySession>) => void;
   isMobile: boolean;
   onToggleSidebar: () => void;
   isApiKeyReady: boolean;
   onOpenSettings: () => void;
   theme: 'light' | 'dark';
+  activeAssetId: string | null;
+  onSelectAsset: (id: string | null) => void;
 }
 
 type ActiveTab = 'transcript' | 'notes' | 'guide' | 'questions' | 'flashcards' | 'handouts' | 'chat';
@@ -101,16 +104,18 @@ const ApiKeyBanner = ({ onOpenSettings }: { onOpenSettings: () => void; }) => (
 );
 
 
-const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile, onToggleSidebar, isApiKeyReady, onOpenSettings, theme }) => {
+const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile, onToggleSidebar, isApiKeyReady, onOpenSettings, theme, activeAssetId, onSelectAsset }) => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
   const [isLoading, setIsLoading] = useState(false);
+  const activeAsset = session.assets.find(asset => asset.id === activeAssetId) ?? session.assets[0] ?? null;
+  const sessionTranscript = session.assets.flatMap(asset => asset.segments).filter(segment => segment.isFinal);
   
   // State for the notes editor with debouncing
-  const [editorContent, setEditorContent] = useState(lecture.organizedNotes || '');
+  const [editorContent, setEditorContent] = useState(session.organizedNotes || '');
   const editorUpdateTimeoutRef = useRef<number | null>(null);
 
   // Transcript editing state
-  const [editedTranscript, setEditedTranscript] = useState(lecture.transcript.map(t => t.text).join('\n'));
+  const [editedTranscript, setEditedTranscript] = useState(activeAsset ? buildTranscriptText(activeAsset.segments, true) : '');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving'>('saved');
   const saveTimeoutRef = useRef<number | null>(null);
   const transcriptTextAreaRef = useRef<HTMLTextAreaElement>(null);
@@ -145,35 +150,34 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
   // Flashcard state
   const [flashcardCount, setFlashcardCount] = useState(10);
   
-  // Inline editing state for lecture info
-  const [editingField, setEditingField] = useState<'title' | 'date' | null>(null);
+  // Inline editing state for session info
+  const [editingField, setEditingField] = useState<'title' | null>(null);
   const [editValue, setEditValue] = useState('');
   
   // Advanced generation state
   const [useIntelligenceMode, setUseIntelligenceMode] = useState(false);
 
   useEffect(() => {
-    // Reset to notes tab when lecture changes
+    // Reset to notes tab when session/asset changes
     setActiveTab('notes');
-    setEditedTranscript(lecture.transcript.map(t => t.text).join('\n'));
+    setEditedTranscript(activeAsset ? buildTranscriptText(activeAsset.segments, true) : '');
     setSaveStatus('saved');
-    // Reset editing state on lecture change
     setEditingField(null);
-  }, [lecture.id, lecture.transcript]);
+  }, [session.id, activeAsset]);
   
-  // Update local editor state when the lecture's notes change from an outside source (e.g., AI generation)
+  // Update local editor state when the session's notes change from an outside source (e.g., AI generation)
   useEffect(() => {
-      setEditorContent(lecture.organizedNotes || '');
-  }, [lecture.organizedNotes]);
+      setEditorContent(session.organizedNotes || '');
+  }, [session.organizedNotes]);
 
-  // Debounced update from local editor state to the global lecture state
+  // Debounced update from local editor state to the global session state
   useEffect(() => {
-      if (editorContent !== lecture.organizedNotes) {
+      if (editorContent !== session.organizedNotes) {
           if (editorUpdateTimeoutRef.current) {
               clearTimeout(editorUpdateTimeoutRef.current);
           }
           editorUpdateTimeoutRef.current = window.setTimeout(() => {
-              updateLecture(lecture.id, { organizedNotes: editorContent });
+              updateSession(session.id, { organizedNotes: editorContent });
           }, 1500); // Debounce saves by 1.5 seconds
       }
       return () => {
@@ -181,30 +185,32 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
               clearTimeout(editorUpdateTimeoutRef.current);
           }
       };
-  }, [editorContent, lecture.id, lecture.organizedNotes, updateLecture]);
+  }, [editorContent, session.id, session.organizedNotes, updateSession]);
 
   // Transcript Auto-save logic
   useEffect(() => {
-    if (saveStatus === 'unsaved') {
+    if (saveStatus === 'unsaved' && activeAsset) {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
       saveTimeoutRef.current = window.setTimeout(() => {
         setSaveStatus('saving');
-        // Convert back to TranscriptSegment[] for storage
-        const newSegments: TranscriptSegment[] = editedTranscript.split('\n').map((text, index) => ({
-            text,
-            // Preserve original timestamps if possible, otherwise use a placeholder
-            startTime: lecture.transcript[index]?.startTime ?? 0
-        }));
-        updateLecture(lecture.id, { transcript: newSegments });
+        const createdAt = new Date().toISOString();
+        const newSegments: TranscriptSegment[] = normalizeImportedTranscript(editedTranscript, activeAsset.id, createdAt);
+        updateSession(session.id, {
+          assets: session.assets.map(asset =>
+            asset.id === activeAsset.id
+              ? { ...asset, segments: newSegments, transcriptText: buildTranscriptText(newSegments) }
+              : asset
+          ),
+        });
         setTimeout(() => setSaveStatus('saved'), 500); // Simulate save time
       }, 3000);
     }
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     }
-  }, [editedTranscript, saveStatus, lecture.id, lecture.transcript, updateLecture]);
+  }, [editedTranscript, saveStatus, session.id, session.assets, updateSession, activeAsset]);
   
   const handleTranscriptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setEditedTranscript(e.target.value);
@@ -220,11 +226,11 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
 
   const currentContent = useMemo(() => {
     switch (activeTab) {
-      case 'guide': return lecture.studyGuide;
-      case 'questions': return lecture.testQuestions;
+      case 'guide': return session.studyGuide;
+      case 'questions': return session.testQuestions;
       default: return null;
     }
-  }, [activeTab, lecture]);
+  }, [activeTab, session]);
   
   const handleGenerateTextContent = async () => {
     if (!isApiKeyReady) return;
@@ -240,23 +246,23 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
 
     setIsLoading(true);
     if (statusKey) {
-        updateLecture(lecture.id, { [statusKey]: 'generating' });
+        updateSession(session.id, { [statusKey]: 'generating' });
     }
 
     try {
-      const result = await processTranscript(lecture.transcript, mode, lecture.handouts, useIntelligenceMode);
+      const result = await processTranscript(sessionTranscript, mode, session.handouts, useIntelligenceMode);
       
-      const updates: Partial<Lecture> = statusKey ? { [statusKey]: 'success' } : {};
+      const updates: Partial<StudySession> = statusKey ? { [statusKey]: 'success' } : {};
       switch (activeTab) {
         case 'notes': updates.organizedNotes = result; break;
         case 'guide': updates.studyGuide = result; break;
         case 'questions': updates.testQuestions = result; break;
       }
-      updateLecture(lecture.id, updates);
+      updateSession(session.id, updates);
     } catch (e) {
       console.error("Error generating content:", e);
       if (statusKey) {
-          updateLecture(lecture.id, { [statusKey]: 'error' });
+          updateSession(session.id, { [statusKey]: 'error' });
       }
     } finally {
       setIsLoading(false);
@@ -267,8 +273,8 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
       if (!isApiKeyReady) return;
       setIsLoading(true);
       try {
-          const cards = await generateFlashcards(lecture.transcript, lecture.handouts, flashcardCount, useIntelligenceMode);
-          updateLecture(lecture.id, { flashcards: cards });
+          const cards = await generateFlashcards(sessionTranscript, session.handouts, flashcardCount, useIntelligenceMode);
+          updateSession(session.id, { flashcards: cards });
       } catch (error) {
           console.error(error);
           alert("Sorry, an error occurred while generating flashcards. Please try again.");
@@ -284,17 +290,17 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
             case 'questions':
                 return !!currentContent;
             case 'transcript':
-                return lecture.transcript.length > 0;
+                return !!activeAsset && activeAsset.segments.length > 0;
             case 'flashcards':
-                return !!lecture.flashcards && lecture.flashcards.length > 0;
+                return !!session.flashcards && session.flashcards.length > 0;
             case 'notes':
-                return !!lecture.organizedNotes;
+                return !!session.organizedNotes;
              case 'handouts':
-                return !!lecture.handouts && lecture.handouts.length > 0;
+                return !!session.handouts && session.handouts.length > 0;
             default:
                 return false;
         }
-    }, [activeTab, isLoading, currentContent, lecture]);
+    }, [activeTab, isLoading, currentContent, activeAsset, session]);
 
 
   const handleExport = async () => {
@@ -302,20 +308,21 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     let filenameSuffix: string;
 
     if (activeTab === 'flashcards') {
-        if (!lecture.flashcards || lecture.flashcards.length === 0) return;
-        content = lecture.flashcards.map(card => `Front:\n${card.front}\n\nBack:\n${card.back}`).join('\n\n---\n\n');
+        if (!session.flashcards || session.flashcards.length === 0) return;
+        content = session.flashcards.map(card => `Front:\n${card.front}\n\nBack:\n${card.back}`).join('\n\n---\n\n');
         filenameSuffix = 'Flashcards';
     } else if (activeTab === 'transcript') {
-        content = lecture.transcript.map(s => `[${formatTime(s.startTime)}] ${s.text}`).join('\n');
+        if (!activeAsset) return;
+        content = activeAsset.segments.map(s => `[${formatTime(s.startMs / 1000)}] ${s.text}`).join('\n');
         filenameSuffix = 'Transcript';
     } else if (activeTab === 'notes') {
-        if (!lecture.organizedNotes) return;
+        if (!session.organizedNotes) return;
         const turndownService = new TurndownService();
-        content = turndownService.turndown(lecture.organizedNotes);
+        content = turndownService.turndown(session.organizedNotes);
         filenameSuffix = 'Organized_Notes';
     } else if (activeTab === 'handouts') {
-        if (!lecture.handouts || lecture.handouts.length === 0) return;
-        content = lecture.handouts.map(h => `## Handout: ${h.name}\n\n${h.content}`).join('\n\n---\n\n');
+        if (!session.handouts || session.handouts.length === 0) return;
+        content = session.handouts.map(h => `## Handout: ${h.name}\n\n${h.content}`).join('\n\n---\n\n');
         filenameSuffix = 'Handouts';
     } else {
         const textContent = currentContent;
@@ -328,7 +335,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
         }
     }
 
-    const sanitizedTitle = lecture.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const sanitizedTitle = session.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
     const filename = `${sanitizedTitle}_${filenameSuffix}.md`;
 
     if (isTauri()) {
@@ -353,16 +360,16 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
   const handleAddTag = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedTag = newTag.trim();
-    if (trimmedTag && !lecture.tags.find(t => t.toLowerCase() === trimmedTag.toLowerCase())) {
-        const updatedTags = [...lecture.tags, trimmedTag];
-        updateLecture(lecture.id, { tags: updatedTags });
+    if (trimmedTag && !session.tags.find(t => t.toLowerCase() === trimmedTag.toLowerCase())) {
+        const updatedTags = [...session.tags, trimmedTag];
+        updateSession(session.id, { tags: updatedTags });
         setNewTag('');
     }
   };
 
   const handleRemoveTag = (indexToRemove: number) => {
-    const updatedTags = lecture.tags.filter((_, index) => index !== indexToRemove);
-    updateLecture(lecture.id, { tags: updatedTags });
+    const updatedTags = session.tags.filter((_, index) => index !== indexToRemove);
+    updateSession(session.id, { tags: updatedTags });
   };
   
   const handleStartEditTag = (index: number, value: string) => {
@@ -385,38 +392,38 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     }
 
     // If tag is unchanged, do nothing
-    if (newTagName === lecture.tags[index]) {
+    if (newTagName === session.tags[index]) {
         return;
     }
     
     // Check for duplicates (case-insensitive)
-    if (lecture.tags.some((tag, i) => tag.toLowerCase() === newTagName.toLowerCase() && i !== index)) {
+    if (session.tags.some((tag, i) => tag.toLowerCase() === newTagName.toLowerCase() && i !== index)) {
         console.warn("Attempted to add a duplicate tag.");
         // Optionally, show an error to the user here.
         return;
     }
 
-    const updatedTags = [...lecture.tags];
+    const updatedTags = [...session.tags];
     updatedTags[index] = newTagName;
-    updateLecture(lecture.id, { tags: updatedTags });
+    updateSession(session.id, { tags: updatedTags });
   };
 
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || isChatLoading || !isApiKeyReady) return;
 
-    const newHistory: ChatMessage[] = [...lecture.chatHistory, { role: 'user', content: chatInput }];
-    updateLecture(lecture.id, { chatHistory: newHistory });
+    const newHistory: ChatMessage[] = [...session.chatHistory, { role: 'user', content: chatInput }];
+    updateSession(session.id, { chatHistory: newHistory });
     const messageToSend = chatInput;
     setChatInput('');
     setIsChatLoading(true);
 
     try {
-        const stream = await getChatResponseStream(lecture.chatHistory, messageToSend, lecture.transcript, lecture.handouts, useSearchGrounding, useIntelligenceMode);
+        const stream = await getChatResponseStream(session.chatHistory, messageToSend, sessionTranscript, session.handouts, useSearchGrounding, useIntelligenceMode);
         let currentResponse = '';
         let sources: GroundingSource[] = [];
 
-        updateLecture(lecture.id, { chatHistory: [...newHistory, {role: 'model', content: ''}] });
+        updateSession(session.id, { chatHistory: [...newHistory, {role: 'model', content: ''}] });
 
         for await (const chunk of stream) {
             currentResponse += chunk.textDelta;
@@ -428,11 +435,11 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
                 });
             }
 
-            updateLecture(lecture.id, { chatHistory: [...newHistory, { role: 'model', content: currentResponse, sources: sources.length > 0 ? sources : undefined }] });
+            updateSession(session.id, { chatHistory: [...newHistory, { role: 'model', content: currentResponse, sources: sources.length > 0 ? sources : undefined }] });
         }
     } catch (error) {
         console.error("Chat error:", error);
-        updateLecture(lecture.id, { chatHistory: [...newHistory, { role: 'model', content: "Sorry, I encountered an error." }] });
+        updateSession(session.id, { chatHistory: [...newHistory, { role: 'model', content: "Sorry, I encountered an error." }] });
     } finally {
         setIsChatLoading(false);
     }
@@ -453,15 +460,15 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
       }
     }
     
-    const currentHandoutNames = new Set(lecture.handouts.map(h => h.name));
+    const currentHandoutNames = new Set(session.handouts.map(h => h.name));
     const uniqueNewHandouts = newHandouts.filter(h => !currentHandoutNames.has(h.name));
     
     if (uniqueNewHandouts.length > 0) {
-        updateLecture(lecture.id, { handouts: [...lecture.handouts, ...uniqueNewHandouts] });
+        updateSession(session.id, { handouts: [...session.handouts, ...uniqueNewHandouts] });
     }
 
     setIsParsingHandouts(false);
-  }, [lecture.id, lecture.handouts, updateLecture]);
+  }, [session.id, session.handouts, updateSession]);
 
   const handleDragEvents = (e: React.DragEvent<HTMLDivElement>, isOver: boolean) => {
     e.preventDefault();
@@ -475,11 +482,11 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
   };
 
   const handleRemoveHandout = (indexToRemove: number) => {
-    const updatedHandouts = lecture.handouts.filter((_, index) => index !== indexToRemove);
-    updateLecture(lecture.id, { handouts: updatedHandouts });
+    const updatedHandouts = session.handouts.filter((_, index) => index !== indexToRemove);
+    updateSession(session.id, { handouts: updatedHandouts });
   };
   
-    const handleStartEditing = (field: 'title' | 'date', currentValue: string) => {
+    const handleStartEditing = (field: 'title', currentValue: string) => {
         setEditingField(field);
         setEditValue(currentValue);
     };
@@ -488,12 +495,8 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
         if (!editingField) return;
         
         const trimmedValue = editValue.trim();
-        if (trimmedValue) {
-            if (editingField === 'title' && trimmedValue !== lecture.title) {
-                updateLecture(lecture.id, { title: trimmedValue });
-            } else if (editingField === 'date' && trimmedValue !== lecture.date) {
-                updateLecture(lecture.id, { date: trimmedValue });
-            }
+        if (trimmedValue && editingField === 'title' && trimmedValue !== session.title) {
+            updateSession(session.id, { title: trimmedValue });
         }
         
         setEditingField(null);
@@ -649,7 +652,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     if (activeTab === 'chat') {
         chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [lecture.chatHistory, activeTab]);
+  }, [session.chatHistory, activeTab]);
 
   const quillModules = {
     toolbar: [
@@ -692,6 +695,24 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
                         </div>
                     </div>
                 )}
+                <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-gray-100 dark:bg-gray-900 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div>
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Session Assets</h3>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Select a live recording or imported transcript.</p>
+                    </div>
+                    <select
+                        value={activeAsset?.id ?? ''}
+                        onChange={(e) => onSelectAsset(e.target.value || null)}
+                        className="border border-gray-300 dark:border-gray-700 rounded-md p-2 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200"
+                    >
+                        {session.assets.length === 0 && <option value="">No assets yet</option>}
+                        {session.assets.map(asset => (
+                            <option key={asset.id} value={asset.id}>
+                                {asset.sourceType === 'live' ? 'Live' : 'Import'} • {new Date(asset.createdAt).toLocaleString()}
+                            </option>
+                        ))}
+                    </select>
+                </div>
                 <div className="flex justify-between items-center mb-4 flex-wrap gap-2 bg-gray-100 dark:bg-gray-900 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
                      <div className="flex items-center space-x-2 flex-wrap gap-2">
                         <span className="text-sm font-medium text-indigo-500 dark:text-indigo-400 flex items-center"><SparklesIcon className="w-5 h-5 mr-2"/>AI Assistant:</span>
@@ -756,9 +777,9 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
                         value={editedTranscript}
                         onChange={handleTranscriptChange}
                         onScroll={handleTranscriptScroll}
-                        readOnly={!!isAiEditing}
+                        readOnly={!!isAiEditing || !activeAsset}
                         className={`${transcriptEditorClassName} bg-transparent text-gray-800 dark:text-gray-300 focus:ring-0 focus:border-transparent z-10 disabled:bg-gray-100 dark:disabled:bg-gray-800`}
-                        placeholder="Transcript will appear here..."
+                        placeholder={activeAsset ? "Transcript will appear here..." : "No transcript yet. Start a live lecture or import one."}
                     />
                  </div>
             </div>
@@ -766,10 +787,10 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
     }
       
     if (activeTab === 'notes') {
-        if (lecture.organizedNotesStatus === 'generating') return loadingState('Generating Organized Notes...');
-        if (lecture.organizedNotesStatus === 'error') return errorState('An error occurred while generating notes.', handleGenerateTextContent);
+        if (session.organizedNotesStatus === 'generating') return loadingState('Generating Organized Notes...');
+        if (session.organizedNotesStatus === 'error') return errorState('An error occurred while generating notes.', handleGenerateTextContent);
         
-        if (lecture.organizedNotes !== null) {
+        if (session.organizedNotes !== null) {
             return (
                 <div className="h-full bg-white dark:bg-gray-900">
                     <ReactQuill
@@ -796,8 +817,8 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
 
     if (activeTab === 'flashcards') {
         if (isLoading) return loadingState('Generating Flashcards...');
-        if (lecture.flashcards && lecture.flashcards.length > 0) {
-            return <FlashcardViewer cards={lecture.flashcards} />;
+        if (session.flashcards && session.flashcards.length > 0) {
+            return <FlashcardViewer cards={session.flashcards} />;
         }
         return (
             <div className="p-6 text-center text-gray-600 dark:text-gray-500">
@@ -855,14 +876,14 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
                 {isParsingHandouts && <p className="text-center text-gray-500 dark:text-gray-400 animate-pulse my-4">Parsing files...</p>}
 
                 <div className="max-w-4xl mx-auto w-full">
-                    {lecture.handouts.length === 0 && !isParsingHandouts ? (
+                    {session.handouts.length === 0 && !isParsingHandouts ? (
                         <div className="text-center text-gray-500 py-10">
                             <PaperclipIcon className="w-12 h-12 mx-auto mb-4 text-gray-400 dark:text-gray-600" />
                             <h3 className="text-lg font-medium text-gray-800 dark:text-white">No Handouts Attached</h3>
-                            <p>Upload documents using the area above to supplement your lecture notes.</p>
+                            <p>Upload documents using the area above to supplement your session notes.</p>
                         </div>
                     ) : (
-                        lecture.handouts.map((handout, index) => (
+                        session.handouts.map((handout, index) => (
                             <div key={index} className="bg-white dark:bg-gray-900 rounded-lg shadow-md mb-6 overflow-hidden">
                                 <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
                                     <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate pr-4">{handout.name}</h3>
@@ -884,17 +905,17 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
             <div className="flex flex-col h-full">
                 <div className="flex-1 p-6 overflow-y-auto">
                     <div className="max-w-4xl mx-auto space-y-4">
-                        {lecture.chatHistory.length === 0 ? (
+                        {session.chatHistory.length === 0 ? (
                              <div className="text-center text-gray-500">
                                  <ChatBubbleIcon className="w-12 h-12 mx-auto mb-4" />
-                                 <p>Ask a question about the lecture to get started.</p>
+                                 <p>Ask a question about the session to get started.</p>
                              </div>
                         ) : (
-                            lecture.chatHistory.map((msg, index) => (
+                            session.chatHistory.map((msg, index) => (
                                 <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`max-w-xl p-3 rounded-lg ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-200'}`}>
                                         <div className="prose prose-sm dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: msg.content.replace(/\n/g, '<br />') }} />
-                                        {isChatLoading && msg.role === 'model' && index === lecture.chatHistory.length - 1 && <span className="animate-pulse">...</span>}
+                                        {isChatLoading && msg.role === 'model' && index === session.chatHistory.length - 1 && <span className="animate-pulse">...</span>}
                                         {msg.sources && msg.sources.length > 0 && (
                                             <div className="mt-2 pt-2 border-t border-gray-300 dark:border-gray-600">
                                                 <h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">Sources:</h4>
@@ -923,7 +944,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
                                 type="text"
                                 value={chatInput}
                                 onChange={(e) => setChatInput(e.target.value)}
-                                placeholder="Ask a question about the lecture..."
+                                placeholder="Ask a question about the session..."
                                 disabled={isChatLoading || !isApiKeyReady}
                                 className="flex-1 p-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-200 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
                             />
@@ -1015,29 +1036,14 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
                     ) : (
                         <h2 
                             className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md px-2 -mx-2 truncate"
-                            onClick={() => handleStartEditing('title', lecture.title)}
+                            onClick={() => handleStartEditing('title', session.title)}
                         >
-                            {lecture.title}
+                            {session.title}
                         </h2>
                     )}
-                    {editingField === 'date' ? (
-                        <input
-                            type="text"
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            onBlur={handleFinishEditing}
-                            onKeyDown={handleEditKeyDown}
-                            autoFocus
-                            className="text-sm bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-md px-2 -mx-2 mt-1"
-                        />
-                    ) : (
-                        <p 
-                            className="text-sm text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md px-2 -mx-2 mt-1"
-                            onClick={() => handleStartEditing('date', lecture.date)}
-                        >
-                            {lecture.date}
-                        </p>
-                    )}
+                    <p className="text-sm text-gray-500 dark:text-gray-400 px-2 -mx-2 mt-1">
+                        Created {new Date(session.createdAt).toLocaleString()} • Updated {new Date(session.updatedAt).toLocaleString()}
+                    </p>
                 </div>
             </div>
             <div className="flex items-center space-x-2 md:space-x-4 flex-shrink-0">
@@ -1065,19 +1071,19 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
          {/* Tags Section */}
          <div className="bg-white dark:bg-gray-900 p-4 border-b border-gray-200 dark:border-gray-700">
             <div className="max-w-4xl mx-auto">
-                {lecture.tagsStatus === 'generating' && (
+                {session.tagsStatus === 'generating' && (
                     <p className="text-sm text-gray-500 dark:text-gray-400 animate-pulse mb-2">Generating suggested tags...</p>
                 )}
-                {lecture.tagsStatus === 'success' && lecture.suggestedTags && lecture.suggestedTags.length > 0 && (
+                {session.tagsStatus === 'success' && session.suggestedTags && session.suggestedTags.length > 0 && (
                     <div className="mb-3">
                         <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Suggested Tags</h4>
                         <div className="flex flex-wrap gap-2">
-                            {lecture.suggestedTags.filter(st => !lecture.tags.find(t => t.toLowerCase() === st.toLowerCase())).map((tag, index) => (
+                            {session.suggestedTags.filter(st => !session.tags.find(t => t.toLowerCase() === st.toLowerCase())).map((tag, index) => (
                                 <button 
                                     key={`${tag}-${index}`}
                                     onClick={() => {
-                                        const updatedTags = [...lecture.tags, tag];
-                                        updateLecture(lecture.id, { tags: updatedTags });
+                                        const updatedTags = [...session.tags, tag];
+                                        updateSession(session.id, { tags: updatedTags });
                                     }}
                                     className="px-2 py-1 text-xs rounded-full bg-teal-600 text-white hover:bg-teal-500 transition-colors"
                                 >
@@ -1089,7 +1095,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ lecture, updateLecture, isMobile,
                 )}
                 <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">My Tags</h4>
                 <div className="flex flex-wrap items-center gap-2">
-                    {lecture.tags.map((tag, index) => (
+                    {session.tags.map((tag, index) => (
                         <div key={index} className="flex items-center bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded-full pl-3 pr-1 py-1">
                             {editingTag?.index === index ? (
                                 <input

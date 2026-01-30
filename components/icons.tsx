@@ -176,3 +176,15 @@ export const ChevronDownIcon = ({ className = 'w-6 h-6' }: { className?: string 
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
     </svg>
 );
+
+export const PauseIcon = ({ className = 'w-6 h-6' }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6h-2a1 1 0 00-1 1v10a1 1 0 001 1h2a1 1 0 001-1V7a1 1 0 00-1-1zM16 6h-2a1 1 0 00-1 1v10a1 1 0 001 1h2a1 1 0 001-1V7a1 1 0 00-1-1z" />
+    </svg>
+);
+
+export const PlayIcon = ({ className = 'w-6 h-6' }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 5l12 7-12 7V5z" />
+    </svg>
+);

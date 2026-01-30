@@ -41,12 +41,10 @@ const run = () => {
             );
         });
 
-        if (id !== 'gemini') {
-            assert(
-                meta.supportsLiveTranscription === false,
-                `Only Gemini should enable live transcription. Found supportsLiveTranscription=true for "${id}".`
-            );
-        }
+        assert(
+            meta.supportsLiveTranscription === false,
+            `AI providers should not advertise live transcription now that streaming STT is handled separately. Found supportsLiveTranscription=true for "${id}".`
+        );
     });
 
     console.log('✅ Provider metadata verification passed.');

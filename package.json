@@ -16,7 +16,8 @@
     "build-desktop": "npm run tauri build",
     "start-mobile": "npm run build && npx cap sync && (npx cap open android || npx cap open ios)",
     "sync-mobile": "npm run build && npx cap sync",
-    "verify:providers": "ts-node --esm verification_scripts/verify_providers.ts"
+    "verify:providers": "ts-node --esm verification_scripts/verify_providers.ts",
+    "test:transcript": "ts-node --esm verification_scripts/transcript_pipeline.test.ts"
   },
   "dependencies": {
     "@capacitor/core": "^6.1.1",

@@ -1,20 +1,22 @@
 import React, { useState, useCallback } from 'react';
-import { Handout } from '../types';
+import { Handout, StudySession } from '../types';
 import { UploadIcon, FileTextIcon, XIcon } from './icons';
 import { parseFile } from '../utils/fileParser';
 
 
 interface FileUploadModalProps {
   onClose: () => void;
-  onCreateLecture: (data: { title: string; transcript: string; handouts: Handout[] }) => void;
+  onCreateLecture: (data: { title: string; transcript: string; handouts: Handout[]; sessionId?: string }) => void;
+  sessions: StudySession[];
 }
 
-const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLecture }) => {
+const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLecture, sessions }) => {
   const [title, setTitle] = useState('');
   const [transcript, setTranscript] = useState('');
   const [handouts, setHandouts] = useState<Handout[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [selectedSessionId, setSelectedSessionId] = useState<string>('new');
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -50,7 +52,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
       alert('A transcript is required to use the AI features.');
       return;
     }
-    onCreateLecture({ title, transcript, handouts });
+    onCreateLecture({ title, transcript, handouts, sessionId: selectedSessionId === 'new' ? undefined : selectedSessionId });
   };
   
   const removeHandout = (index: number) => {
@@ -61,35 +63,53 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
         <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Upload Lecture Notes or PDF Handouts</h2>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Import Transcript or Handouts</h2>
           <button onClick={onClose} className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
             <XIcon className="w-6 h-6" />
           </button>
         </div>
 
         <div className="p-6 space-y-4 overflow-y-auto">
-          <div>
-            <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Lecture Title</label>
-            <input
-              id="title"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g., Introduction to Quantum Physics"
-              className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-gray-800 dark:text-gray-200 focus:ring-indigo-500 focus:border-indigo-500"
-            />
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="session-select" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Save to Session</label>
+              <select
+                id="session-select"
+                value={selectedSessionId}
+                onChange={(e) => setSelectedSessionId(e.target.value)}
+                className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-gray-800 dark:text-gray-200 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value="new">Create new session</option>
+                {sessions.map(session => (
+                  <option key={session.id} value={session.id}>{session.title}</option>
+                ))}
+              </select>
+            </div>
+            {selectedSessionId === 'new' && (
+              <div>
+                <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Session Title</label>
+                <input
+                  id="title"
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g., Introduction to Quantum Physics"
+                  className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-gray-800 dark:text-gray-200 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+            )}
           </div>
 
           <div>
             <label htmlFor="transcript" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Lecture Transcript <span className="text-red-500 dark:text-red-400">*</span>
+              Transcript Text <span className="text-red-500 dark:text-red-400">*</span>
             </label>
             <textarea
               id="transcript"
               value={transcript}
               onChange={(e) => setTranscript(e.target.value)}
               rows={8}
-              placeholder="Paste the full transcript of your lecture here. This is required for all AI features."
+              placeholder="Paste the full transcript here. This is required for all AI features."
               className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-gray-800 dark:text-gray-200 focus:ring-indigo-500 focus:border-indigo-500"
             />
           </div>
@@ -145,7 +165,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
             disabled={isParsing || !transcript.trim()}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed"
           >
-            Create Lecture
+            Import Transcript
           </button>
         </div>
       </div>

@@ -7,11 +7,11 @@ import { ApiConfig } from '../../utils/apiConfig';
 export const geminiMetadata: ProviderMetadata = {
     id: 'gemini',
     label: 'Google Gemini',
-    description: 'Use Google AI Studio API keys to access Gemini 2.0/2.5 models. Supports live transcription.',
+    description: 'Use Google AI Studio API keys to access Gemini 2.0/2.5 models.',
     docsUrl: 'https://ai.google.dev/gemini-api/docs',
     keyLabel: 'Gemini API Key',
-    notes: 'Best experience for live transcription and multimodal tasks.',
-    supportsLiveTranscription: true,
+    notes: 'Great for multimodal AI outputs and long-context study workflows.',
+    supportsLiveTranscription: false,
 };
 
 export const createGeminiProvider = (config: ApiConfig): AiProvider => {

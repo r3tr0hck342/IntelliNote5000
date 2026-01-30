@@ -10,10 +10,10 @@ const PRO_MODEL = 'gpt-4o';
 export const openAiMetadata: ProviderMetadata = {
     id: 'openai',
     label: 'OpenAI (Chat Completions)',
-    description: 'Use OpenAI API keys for GPT-4o family models. Supports all AI-powered features except live transcription.',
+    description: 'Use OpenAI API keys for GPT-4o family models. Streaming transcription is configured separately.',
     docsUrl: 'https://platform.openai.com/docs',
     keyLabel: 'OpenAI API Key',
-    notes: 'Requires Chat Completions access. Live transcription currently unavailable.',
+    notes: 'Requires Chat Completions access.',
     supportsLiveTranscription: false,
     allowsCustomBaseUrl: true,
 };
