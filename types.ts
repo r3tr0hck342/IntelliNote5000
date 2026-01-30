@@ -9,6 +9,18 @@ export interface Handout {
 }
 
 export interface TranscriptSegment {
+    id: string;
+    assetId: string;
+    startMs: number;
+    endMs: number;
+    text: string;
+    isFinal: boolean;
+    confidence?: number;
+    speaker?: string;
+    createdAt: string;
+}
+
+export interface LegacyTranscriptSegment {
     text: string;
     startTime: number; // in seconds
 }
@@ -24,11 +36,11 @@ export interface ChatMessage {
     sources?: GroundingSource[];
 }
 
-export interface Lecture {
+export interface LegacyLecture {
   id: string;
   title: string;
   date: string;
-  transcript: TranscriptSegment[];
+  transcript: LegacyTranscriptSegment[];
   handouts: Handout[];
   organizedNotes: string | null; // This will now store HTML
   organizedNotesStatus?: 'generating' | 'error' | 'success';
@@ -39,6 +51,37 @@ export interface Lecture {
   suggestedTags?: string[];
   tagsStatus?: 'idle' | 'generating' | 'success' | 'error';
   chatHistory: ChatMessage[];
+}
+
+export interface StudySession {
+  id: string;
+  title: string;
+  topic: string;
+  createdAt: string;
+  updatedAt: string;
+  assets: LectureAsset[];
+  handouts: Handout[];
+  organizedNotes: string | null;
+  organizedNotesStatus?: 'generating' | 'error' | 'success';
+  studyGuide: string | null;
+  testQuestions: string | null;
+  flashcards: Flashcard[] | null;
+  tags: string[];
+  suggestedTags?: string[];
+  tagsStatus?: 'idle' | 'generating' | 'success' | 'error';
+  chatHistory: ChatMessage[];
+}
+
+export interface LectureAsset {
+  id: string;
+  sessionId: string;
+  sourceType: 'live' | 'import';
+  audioPath?: string;
+  transcriptText: string;
+  transcriptPath?: string;
+  language: string;
+  createdAt: string;
+  segments: TranscriptSegment[];
 }
 
 export enum GenerationMode {

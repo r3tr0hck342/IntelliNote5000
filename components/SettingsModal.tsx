@@ -3,6 +3,8 @@ import { XIcon, BrainIcon, SunIcon, MoonIcon } from './icons';
 import { ApiConfig } from '../utils/apiConfig';
 import { ProviderId } from '../types/ai';
 import { ProviderMetadata } from '../services/providers/types';
+import { SttConfig, SttProviderId } from '../types/stt';
+import { SttProviderMetadata } from '../services/stt';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -10,7 +12,11 @@ interface SettingsModalProps {
   apiConfig: ApiConfig | null;
   onSaveApiConfig: (config: ApiConfig) => Promise<void>;
   onClearApiConfig: () => Promise<void>;
+  sttConfig: SttConfig | null;
+  onSaveSttConfig: (config: SttConfig) => Promise<void>;
+  onClearSttConfig: () => Promise<void>;
   availableProviders: ProviderMetadata[];
+  availableSttProviders: SttProviderMetadata[];
   isApiKeyReady: boolean;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
@@ -22,16 +28,26 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   apiConfig,
   onSaveApiConfig,
   onClearApiConfig,
+  sttConfig,
+  onSaveSttConfig,
+  onClearSttConfig,
   availableProviders,
+  availableSttProviders,
   isApiKeyReady,
   theme,
   onToggleTheme,
 }) => {
   const defaultProvider = useMemo<ProviderId>(() => availableProviders[0]?.id ?? 'gemini', [availableProviders]);
+  const defaultSttProvider = useMemo<SttProviderId>(() => availableSttProviders[0]?.id ?? 'deepgram', [availableSttProviders]);
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>(apiConfig?.provider ?? defaultProvider);
   const [apiKey, setApiKey] = useState(apiConfig?.apiKey ?? '');
   const [baseUrl, setBaseUrl] = useState(apiConfig?.baseUrl ?? '');
+  const [selectedSttProvider, setSelectedSttProvider] = useState<SttProviderId>(sttConfig?.provider ?? defaultSttProvider);
+  const [sttApiKey, setSttApiKey] = useState(sttConfig?.apiKey ?? '');
+  const [sttLanguage, setSttLanguage] = useState(sttConfig?.language ?? '');
+  const [sttModel, setSttModel] = useState(sttConfig?.model ?? '');
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingStt, setIsSavingStt] = useState(false);
 
   useEffect(() => {
     setSelectedProvider(apiConfig?.provider ?? defaultProvider);
@@ -39,10 +55,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     setBaseUrl(apiConfig?.baseUrl ?? '');
   }, [apiConfig, defaultProvider]);
 
+  useEffect(() => {
+    setSelectedSttProvider(sttConfig?.provider ?? defaultSttProvider);
+    setSttApiKey(sttConfig?.apiKey ?? '');
+    setSttLanguage(sttConfig?.language ?? '');
+    setSttModel(sttConfig?.model ?? '');
+  }, [sttConfig, defaultSttProvider]);
+
   if (!isOpen) return null;
 
   const selectedMetadata = availableProviders.find(p => p.id === selectedProvider) || availableProviders[0];
   const requiresBaseUrl = Boolean(selectedMetadata?.allowsCustomBaseUrl);
+  const selectedSttMetadata = availableSttProviders.find(p => p.id === selectedSttProvider) || availableSttProviders[0];
 
   const handleSave = async () => {
     if (!apiKey.trim()) return;
@@ -55,6 +79,21 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveStt = async () => {
+    if (!sttApiKey.trim()) return;
+    setIsSavingStt(true);
+    try {
+      await onSaveSttConfig({
+        provider: selectedSttProvider,
+        apiKey: sttApiKey.trim(),
+        language: sttLanguage.trim() || undefined,
+        model: sttModel.trim() || undefined,
+      });
+    } finally {
+      setIsSavingStt(false);
     }
   };
 
@@ -144,6 +183,87 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
           </section>
+
+          <section>
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Transcription Provider</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Configure streaming transcription credentials for live lecture capture. This is separate from your AI provider.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Provider</label>
+                <select
+                  value={selectedSttProvider}
+                  onChange={(e) => setSelectedSttProvider(e.target.value as SttProviderId)}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                >
+                  {availableSttProviders.map(provider => (
+                    <option key={provider.id} value={provider.id}>{provider.label}</option>
+                  ))}
+                </select>
+                {selectedSttMetadata && (
+                  <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                    <p>{selectedSttMetadata.description}</p>
+                    <a href={selectedSttMetadata.docsUrl} target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline">
+                      Provider documentation
+                    </a>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{selectedSttMetadata?.keyLabel ?? 'API Key'}</label>
+                <input
+                  type="password"
+                  value={sttApiKey}
+                  onChange={(e) => setSttApiKey(e.target.value)}
+                  placeholder={selectedSttMetadata?.placeholder ?? 'Paste your transcription API key'}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Language (optional)</label>
+                  <input
+                    type="text"
+                    value={sttLanguage}
+                    onChange={(e) => setSttLanguage(e.target.value)}
+                    placeholder="en-US"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Model (optional)</label>
+                  <input
+                    type="text"
+                    value={sttModel}
+                    onChange={(e) => setSttModel(e.target.value)}
+                    placeholder="nova-2"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  />
+                </div>
+              </div>
+              {selectedSttMetadata?.notes && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">{selectedSttMetadata.notes}</p>
+              )}
+              <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg flex items-center justify-between">
+                <span className="font-medium text-gray-800 dark:text-gray-200">Streaming Status:</span>
+                {sttApiKey.trim() ? (
+                  <span className="text-green-600 dark:text-green-400 font-semibold px-2 py-1 bg-green-100 dark:bg-green-900 rounded-md">Configured</span>
+                ) : (
+                  <span className="text-yellow-600 dark:text-yellow-400 font-semibold px-2 py-1 bg-yellow-100 dark:bg-yellow-900 rounded-md">Missing</span>
+                )}
+              </div>
+              <div className="flex justify-end">
+                <button
+                  onClick={handleSaveStt}
+                  disabled={!sttApiKey.trim() || isSavingStt}
+                  className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSavingStt ? 'Saving...' : 'Save Transcription Settings'}
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
 
         <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-between flex-wrap gap-3">
@@ -156,6 +276,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600"
             >
               Clear Key
+            </button>
+            <button
+              onClick={async () => {
+                await onClearSttConfig();
+                setSttApiKey('');
+              }}
+              className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600"
+            >
+              Clear Transcription Key
             </button>
           </div>
           <div className="flex gap-2">

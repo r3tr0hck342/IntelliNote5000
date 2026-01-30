@@ -1,7 +1,10 @@
 import { GenerationMode, Handout, TranscriptSegment, AiEditMode } from '../types';
 
 export const getTranscriptText = (transcript: TranscriptSegment[]): string => {
-    return transcript.map(segment => segment.text).join(' ');
+    return transcript
+        .filter(segment => segment.isFinal)
+        .map(segment => segment.text)
+        .join(' ');
 };
 
 export const formatContext = (transcript: TranscriptSegment[], handouts: Handout[]): string => {

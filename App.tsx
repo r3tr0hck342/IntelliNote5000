@@ -1,18 +1,23 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import MainPanel from './components/MainPanel';
 import LiveNoteTaker from './components/LiveNoteTaker';
 import FileUploadModal from './components/FileUploadModal';
 import SettingsModal from './components/SettingsModal';
-import { Lecture, AppView, Handout, TranscriptSegment, GenerationMode } from './types';
+import { LegacyLecture, AppView, Handout, TranscriptSegment, GenerationMode, StudySession, LectureAsset } from './types';
 import { BrainIcon, MenuIcon } from './components/icons';
 import { processTranscript, generateTags } from './services/aiService';
 import { App as CapacitorApp } from '@capacitor/app';
 import mermaid from 'mermaid';
 import { ApiConfig, loadApiConfig, persistApiConfig, clearStoredApiConfig } from './utils/apiConfig';
 import { PROVIDER_METADATA } from './services/providers';
+import { SttConfig } from './types/stt';
+import { loadSttConfig, persistSttConfig, clearStoredSttConfig } from './utils/transcriptionConfig';
+import { STT_PROVIDER_METADATA } from './services/stt';
+import { buildTranscriptText, createId, normalizeImportedTranscript } from './utils/transcript';
 
 const PROVIDERS = Object.values(PROVIDER_METADATA);
+const STT_PROVIDERS = Object.values(STT_PROVIDER_METADATA);
 
 const getInitialTheme = (): 'light' | 'dark' => {
   const storedTheme = localStorage.getItem('intellinote-theme');
@@ -26,8 +31,9 @@ const getInitialTheme = (): 'light' | 'dark' => {
 
 
 const App: React.FC = () => {
-  const [lectures, setLectures] = useState<Lecture[]>([]);
-  const [activeLectureId, setActiveLectureId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<StudySession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeAssetId, setActiveAssetId] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<AppView>(AppView.Welcome);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
@@ -36,8 +42,11 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 768);
   
   const [apiConfig, setApiConfig] = useState<ApiConfig | null>(null);
+  const [sttConfig, setSttConfig] = useState<SttConfig | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const isApiKeyReady = Boolean(apiConfig?.apiKey);
+  const isSttKeyReady = Boolean(sttConfig?.apiKey);
+  const sessionsRef = useRef<StudySession[]>([]);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -69,9 +78,58 @@ const App: React.FC = () => {
 
   useEffect(() => {
     try {
+        const storedSessions = localStorage.getItem('intellinote-sessions');
+        if (storedSessions) {
+            setSessions(JSON.parse(storedSessions));
+            return;
+        }
         const storedLectures = localStorage.getItem('intellinote-lectures');
         if (storedLectures) {
-            setLectures(JSON.parse(storedLectures));
+            const legacyLectures: LegacyLecture[] = JSON.parse(storedLectures);
+            const migrated = legacyLectures.map(lecture => {
+              const sessionId = createId('session');
+              const assetId = createId('asset');
+              const createdAt = new Date().toISOString();
+              const segments: TranscriptSegment[] = lecture.transcript.map(segment => ({
+                id: createId('segment'),
+                assetId,
+                startMs: Math.round(segment.startTime * 1000),
+                endMs: Math.round(segment.startTime * 1000),
+                text: segment.text,
+                isFinal: true,
+                createdAt,
+              }));
+              const asset: LectureAsset = {
+                id: assetId,
+                sessionId,
+                sourceType: 'import',
+                transcriptText: buildTranscriptText(segments),
+                transcriptPath: undefined,
+                audioPath: undefined,
+                language: 'en-US',
+                createdAt,
+                segments,
+              };
+              return {
+                id: sessionId,
+                title: lecture.title,
+                topic: '',
+                createdAt,
+                updatedAt: createdAt,
+                assets: [asset],
+                handouts: lecture.handouts,
+                organizedNotes: lecture.organizedNotes,
+                organizedNotesStatus: lecture.organizedNotesStatus,
+                studyGuide: lecture.studyGuide,
+                testQuestions: lecture.testQuestions,
+                flashcards: lecture.flashcards,
+                tags: lecture.tags,
+                suggestedTags: lecture.suggestedTags,
+                tagsStatus: lecture.tagsStatus,
+                chatHistory: lecture.chatHistory,
+              } satisfies StudySession;
+            });
+            setSessions(migrated);
         }
     } catch (e) {
         console.error("Failed to load lectures from localStorage", e);
@@ -79,12 +137,16 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
+
+  useEffect(() => {
     try {
-        localStorage.setItem('intellinote-lectures', JSON.stringify(lectures));
+        localStorage.setItem('intellinote-sessions', JSON.stringify(sessions));
     } catch (e) {
         console.error("Failed to save lectures to localStorage", e);
     }
-  }, [lectures]);
+  }, [sessions]);
 
   useEffect(() => {
     let mounted = true;
@@ -94,6 +156,18 @@ const App: React.FC = () => {
       })
       .catch(error => {
         console.warn('Failed to load API config', error);
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    loadSttConfig()
+      .then(config => {
+        if (mounted) setSttConfig(config);
+      })
+      .catch(error => {
+        console.warn('Failed to load STT config', error);
       });
     return () => { mounted = false; };
   }, []);
@@ -115,42 +189,68 @@ const App: React.FC = () => {
 
   const handleNewLiveLecture = () => {
     setCurrentView(AppView.Live);
-    setActiveLectureId(null);
+    setActiveSessionId(null);
+    setActiveAssetId(null);
     if(isMobile) setIsSidebarOpen(false);
   };
 
-  const updateLecture = useCallback((id: string, updates: Partial<Lecture>) => {
-    setLectures(prevLectures => prevLectures.map(lec => lec.id === id ? { ...lec, ...updates } : lec));
+  const updateSession = useCallback((id: string, updates: Partial<StudySession>) => {
+    setSessions(prevSessions => prevSessions.map(session => session.id === id ? { ...session, ...updates, updatedAt: new Date().toISOString() } : session));
   }, []);
 
-  const triggerAutoGeneration = useCallback(async (lecture: Lecture) => {
+  const triggerAutoGeneration = useCallback(async (session: StudySession) => {
+    const transcript = session.assets.flatMap(asset => asset.segments).filter(segment => segment.isFinal);
     // Generate Organized Notes
     try {
         // Use intelligence mode 'false' for default auto-generation
-        const notes = await processTranscript(lecture.transcript, GenerationMode.Notes, lecture.handouts, false);
-        updateLecture(lecture.id, { organizedNotes: notes, organizedNotesStatus: 'success' });
+        const notes = await processTranscript(transcript, GenerationMode.Notes, session.handouts, false);
+        updateSession(session.id, { organizedNotes: notes, organizedNotesStatus: 'success' });
     } catch (e) {
         console.error("Failed to auto-generate notes:", e);
-        updateLecture(lecture.id, { organizedNotesStatus: 'error' });
+        updateSession(session.id, { organizedNotesStatus: 'error' });
     }
     
     // Generate Tags
     try {
-        const tags = await generateTags(lecture.transcript, lecture.handouts);
-        updateLecture(lecture.id, { suggestedTags: tags, tagsStatus: 'success' });
+        const tags = await generateTags(transcript, session.handouts);
+        updateSession(session.id, { suggestedTags: tags, tagsStatus: 'success' });
     } catch (e) {
         console.error("Failed to auto-generate tags:", e);
-        updateLecture(lecture.id, { tagsStatus: 'error' });
+        updateSession(session.id, { tagsStatus: 'error' });
     }
-  }, [updateLecture]);
+  }, [updateSession]);
 
-  const handleTranscriptionComplete = useCallback((transcript: TranscriptSegment[]) => {
+  const scheduleAutoGeneration = useCallback((sessionId: string) => {
+    setSessions(prevSessions =>
+      prevSessions.map(session =>
+        session.id === sessionId
+          ? { ...session, organizedNotesStatus: 'generating', tagsStatus: 'generating', updatedAt: new Date().toISOString() }
+          : session
+      )
+    );
+    const timers = (window as any).__autoGenTimers || {};
+    if (timers[sessionId]) {
+      window.clearTimeout(timers[sessionId]);
+    }
+    (window as any).__autoGenTimers = timers;
+    timers[sessionId] = window.setTimeout(() => {
+      const session = sessionsRef.current.find(item => item.id === sessionId);
+      if (session) {
+        triggerAutoGeneration(session);
+      }
+    }, 6000);
+  }, [triggerAutoGeneration]);
+
+  const handleCreateSession = useCallback((title: string, topic: string) => {
     const now = new Date();
-    const newLecture: Lecture = {
-      id: `lecture-${now.getTime()}`,
-      title: `Live Lecture - ${now.toLocaleDateString()}`,
-      date: now.toLocaleString(),
-      transcript: transcript,
+    const sessionId = createId('session');
+    const newSession: StudySession = {
+      id: sessionId,
+      title: title || `Session - ${now.toLocaleDateString()}`,
+      topic,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      assets: [],
       handouts: [],
       organizedNotes: null,
       organizedNotesStatus: 'generating',
@@ -162,62 +262,117 @@ const App: React.FC = () => {
       tagsStatus: 'generating',
       chatHistory: [],
     };
+    setSessions(prev => [newSession, ...prev]);
+    setActiveSessionId(sessionId);
+    return sessionId;
+  }, []);
 
-    setLectures(prev => [newLecture, ...prev]);
-    setActiveLectureId(newLecture.id);
-    setCurrentView(AppView.Note);
-    triggerAutoGeneration(newLecture);
-  }, [triggerAutoGeneration]);
+  const handleCreateAsset = useCallback((sessionId: string, sourceType: LectureAsset['sourceType'], language: string) => {
+    const assetId = createId('asset');
+    const createdAt = new Date().toISOString();
+    const asset: LectureAsset = {
+      id: assetId,
+      sessionId,
+      sourceType,
+      transcriptText: '',
+      transcriptPath: undefined,
+      audioPath: undefined,
+      language,
+      createdAt,
+      segments: [],
+    };
+    setSessions(prev =>
+      prev.map(session =>
+        session.id === sessionId
+          ? { ...session, assets: [asset, ...session.assets], updatedAt: createdAt }
+          : session
+      )
+    );
+    setActiveSessionId(sessionId);
+    setActiveAssetId(assetId);
+    return assetId;
+  }, []);
+
+  const handleTranscriptUpdate = useCallback((
+    sessionId: string,
+    assetId: string,
+    segments: TranscriptSegment[],
+    transcriptText: string,
+    hasFinalUpdate: boolean,
+    audioPath?: string
+  ) => {
+    setSessions(prev =>
+      prev.map(session => {
+        if (session.id !== sessionId) return session;
+        const assets = session.assets.map(asset =>
+          asset.id === assetId
+            ? { ...asset, segments, transcriptText, audioPath: audioPath ?? asset.audioPath }
+            : asset
+        );
+        return { ...session, assets, updatedAt: new Date().toISOString() };
+      })
+    );
+    if (hasFinalUpdate) {
+      scheduleAutoGeneration(sessionId);
+    }
+  }, [scheduleAutoGeneration]);
   
   const handleUpload = () => {
     setIsUploadModalOpen(true);
     if(isMobile) setIsSidebarOpen(false);
   };
 
-  const handleCreateLectureFromFile = useCallback((data: { title: string; transcript: string; handouts: Handout[] }) => {
+  const handleCreateLectureFromFile = useCallback((data: { title: string; transcript: string; handouts: Handout[]; sessionId?: string }) => {
     const now = new Date();
-    // Convert flat transcript string to TranscriptSegment array
-    const transcriptSegments: TranscriptSegment[] = data.transcript.split('\n').map(text => ({ text, startTime: 0 }));
-    
-    const newLecture: Lecture = {
-        id: `lecture-${now.getTime()}`,
-        title: data.title || `Uploaded Lecture - ${now.toLocaleDateString()}`,
-        date: now.toLocaleString(),
-        transcript: transcriptSegments,
-        handouts: data.handouts,
-        organizedNotes: null,
-        organizedNotesStatus: 'generating',
-        studyGuide: null,
-        testQuestions: null,
-        flashcards: null,
-        tags: [],
-        suggestedTags: [],
-        tagsStatus: 'generating',
-        chatHistory: [],
+    const sessionId = data.sessionId || handleCreateSession(data.title, '');
+    const assetId = createId('asset');
+    const createdAt = now.toISOString();
+    const segments = normalizeImportedTranscript(data.transcript, assetId, createdAt);
+    const asset: LectureAsset = {
+      id: assetId,
+      sessionId,
+      sourceType: 'import',
+      transcriptText: buildTranscriptText(segments),
+      transcriptPath: undefined,
+      audioPath: undefined,
+      language: 'en-US',
+      createdAt,
+      segments,
     };
-    setLectures(prev => [newLecture, ...prev]);
-    setActiveLectureId(newLecture.id);
+    setSessions(prev => prev.map(session => {
+      if (session.id !== sessionId) return session;
+      return {
+        ...session,
+        assets: [asset, ...session.assets],
+        handouts: [...session.handouts, ...data.handouts],
+        updatedAt: createdAt,
+      };
+    }));
+    setActiveSessionId(sessionId);
+    setActiveAssetId(assetId);
     setCurrentView(AppView.Note);
     setIsUploadModalOpen(false);
-    triggerAutoGeneration(newLecture);
-  }, [triggerAutoGeneration]);
+    scheduleAutoGeneration(sessionId);
+  }, [handleCreateSession, scheduleAutoGeneration]);
   
   const handleDeleteLecture = useCallback((idToDelete: string) => {
-    if (window.confirm('Are you sure you want to permanently delete this lecture and all its data?')) {
-        setLectures(currentLectures => {
-            const newLectures = currentLectures.filter(l => l.id !== idToDelete);
-            // If the deleted lecture was active, reset the view
-            if (activeLectureId === idToDelete) {
-                setActiveLectureId(null);
+    if (window.confirm('Are you sure you want to permanently delete this session and all its data?')) {
+        setSessions(currentSessions => {
+            const newSessions = currentSessions.filter(l => l.id !== idToDelete);
+            if (activeSessionId === idToDelete) {
+                setActiveSessionId(null);
+                setActiveAssetId(null);
                 setCurrentView(AppView.Welcome);
             }
-            return newLectures;
+            return newSessions;
         });
     }
-  }, [activeLectureId]);
+  }, [activeSessionId]);
   
   const handleSelectLecture = (id: string) => {
-    setActiveLectureId(id);
+    setActiveSessionId(id);
+    const session = sessions.find(item => item.id === id);
+    setActiveAssetId(session?.assets[0]?.id ?? null);
     setCurrentView(AppView.Note);
     if(isMobile) setIsSidebarOpen(false);
   };
@@ -233,22 +388,34 @@ const App: React.FC = () => {
     setApiConfig(null);
   }, []);
 
-  const activeLecture = lectures.find(l => l.id === activeLectureId);
+  const handleSaveSttConfig = useCallback(async (config: SttConfig) => {
+    await persistSttConfig(config);
+    setSttConfig(config);
+  }, []);
+
+  const handleClearSttConfig = useCallback(async () => {
+    await clearStoredSttConfig();
+    setSttConfig(null);
+  }, []);
+
+  const activeSession = sessions.find(l => l.id === activeSessionId);
 
   const renderMainContent = () => {
     switch(currentView) {
         case AppView.Live:
             return (
                 <LiveNoteTaker
-                    onTranscriptionComplete={handleTranscriptionComplete}
-                    isApiKeyReady={isApiKeyReady}
+                    isSttReady={isSttKeyReady}
                     onOpenSettings={() => setIsSettingsModalOpen(true)}
-                    providerId={apiConfig?.provider ?? null}
+                    sessions={sessions}
+                    onCreateSession={handleCreateSession}
+                    onCreateLiveAsset={handleCreateAsset}
+                    onTranscriptUpdate={handleTranscriptUpdate}
                 />
             );
         case AppView.Note:
-            if (activeLecture) {
-                return <MainPanel theme={theme} lecture={activeLecture} updateLecture={updateLecture} isMobile={isMobile} onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} isApiKeyReady={isApiKeyReady} onOpenSettings={() => setIsSettingsModalOpen(true)} />;
+            if (activeSession) {
+                return <MainPanel theme={theme} session={activeSession} activeAssetId={activeAssetId} onSelectAsset={setActiveAssetId} updateSession={updateSession} isMobile={isMobile} onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} isApiKeyReady={isApiKeyReady} onOpenSettings={() => setIsSettingsModalOpen(true)} />;
             }
             // Fallback to welcome if no active lecture somehow
             setCurrentView(AppView.Welcome);
@@ -296,8 +463,8 @@ const App: React.FC = () => {
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
           <Sidebar
-            lectures={lectures}
-            activeLectureId={activeLectureId}
+            sessions={sessions}
+            activeSessionId={activeSessionId}
             onSelectLecture={handleSelectLecture}
             onNewLiveLecture={handleNewLiveLecture}
             onUpload={handleUpload}
@@ -314,6 +481,7 @@ const App: React.FC = () => {
         <FileUploadModal
             onClose={() => setIsUploadModalOpen(false)}
             onCreateLecture={handleCreateLectureFromFile}
+            sessions={sessions}
         />
       )}
       <SettingsModal 
@@ -322,7 +490,11 @@ const App: React.FC = () => {
         apiConfig={apiConfig}
         onSaveApiConfig={handleSaveApiConfig}
         onClearApiConfig={handleClearApiConfig}
+        sttConfig={sttConfig}
+        onSaveSttConfig={handleSaveSttConfig}
+        onClearSttConfig={handleClearSttConfig}
         availableProviders={PROVIDERS}
+        availableSttProviders={STT_PROVIDERS}
         isApiKeyReady={isApiKeyReady}
         theme={theme}
         onToggleTheme={toggleTheme}
