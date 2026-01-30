@@ -49,11 +49,13 @@ Add new providers by creating an adapter in `services/providers/` and surfacing 
 - **Clear credentials**: Use **Settings → Clear All Credentials** to wipe cached keys and fallback storage.
 
 Use `npm run verify:providers` to ensure new provider configurations satisfy the automated checks.
+Use `npm run verify:platforms` to confirm platform permission strings and native config files are in place before packaging native builds.
 
 ## Production Checklist
 - ✅ Configure AI + STT providers in Settings and verify credentials.
 - ✅ Disable localStorage fallback unless you explicitly need it for web-only builds.
 - ✅ Verify transcription permissions on each platform.
+- ✅ Run `npm run verify:platforms` to confirm native config strings.
 - ✅ Run `npm run lint`, `npm run typecheck`, and `npm run test:unit`.
 - ✅ Run `npm run build` and `npm run build-desktop` / `npm run sync-mobile` as needed.
 - ✅ Review **Settings → Diagnostics & Storage** for recent errors before release.
@@ -64,10 +66,14 @@ Use `npm run verify:providers` to ensure new provider configurations satisfy the
 - **Interim transcripts not updating**: Ensure the provider is configured for interim results and that the app stays in the foreground (backgrounding may auto-pause).
 - **Keys not persisting on web**: Enable the localStorage fallback toggle in Settings.
 - **Microphone blocked**: Check browser permissions or update native Info.plist/AndroidManifest entries.
+- **Capacitor build fails with missing permissions**: Run `npm run verify:platforms` and `npx cap sync` to regenerate native projects.
+- **Tauri signing/notarization errors**: Confirm `TAURI_SIGNING_IDENTITY`, `APPLE_ID`, and app-specific password are set and that hardened runtime entitlements include microphone access.
+- **Android build fails with foreground service errors**: Ensure `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_MICROPHONE` permissions are present after `npx cap sync`.
 
 ## Platform Permission Notes
 - **macOS/iOS**: Add `NSMicrophoneUsageDescription` before shipping. Ensure entitlements permit microphone access.
-- **Android**: Declare `RECORD_AUDIO` in `AndroidManifest.xml` and re-run `npx cap sync`.
+- **iOS background audio**: `UIBackgroundModes` includes `audio` when background recording is required; remove it if you do not support background capture.
+- **Android**: Declare `RECORD_AUDIO`, `FOREGROUND_SERVICE`, and `FOREGROUND_SERVICE_MICROPHONE` in `AndroidManifest.xml` after `npx cap sync`.
 - **Web**: HTTPS is required for microphone access in most browsers.
 
 ## Release Steps
@@ -76,8 +82,47 @@ Use `npm run verify:providers` to ensure new provider configurations satisfy the
 3. `npm run typecheck`
 4. `npm run test:unit`
 5. `npm run build`
-6. Desktop: `npm run build-desktop`
-7. Mobile: `npm run sync-mobile` → open Xcode/Android Studio for signing and release builds.
+6. `npm run verify:platforms`
+7. Desktop: `npm run build-desktop`
+8. Mobile: `npm run sync-mobile` → open Xcode/Android Studio for signing and release builds.
+
+## Platform Build Steps
+
+### Web
+1. `npm install`
+2. `npm run build`
+3. Deploy `dist/` to your static host.
+
+### macOS (Tauri)
+1. `npm install`
+2. `npm run build`
+3. `npm run verify:platforms`
+4. `npm run build-desktop`
+5. Use the output in `src-tauri/target/release/bundle/macos`.
+
+### iOS (Capacitor)
+1. `npm install`
+2. `npm run build`
+3. `npm run sync-mobile`
+4. `npx cap open ios`
+5. Configure signing and archive in Xcode.
+
+### Android (Capacitor)
+1. `npm install`
+2. `npm run build`
+3. `npm run sync-mobile`
+4. `npx cap open android`
+5. Configure signing and create a release build in Android Studio.
+
+## Signing + Notarization (Placeholders)
+- **macOS (Tauri)**: set `TAURI_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, and optionally `TAURI_NOTARIZE=1` before `npm run build-desktop`.
+- **iOS**: configure the Xcode project signing team, bundle ID, and provisioning profile.
+- **Android**: configure a keystore in `android/` (generated after `npx cap sync`) and set Gradle signing config.
+
+## Provider Keys (Where to Set Them)
+- **Recommended (all platforms)**: Settings → AI Provider + Transcription Provider.
+- **Optional dev fallback**: `.env.local` (e.g., `VITE_API_KEY`, `VITE_AI_PROVIDER`, `VITE_AI_BASE_URL`).
+- **Native secure storage**: Tauri keychain + Capacitor secure storage plugin (never written to disk).
 
 ### Build commands
 - `npm run build` – production web bundle

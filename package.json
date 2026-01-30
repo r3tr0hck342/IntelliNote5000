@@ -16,6 +16,7 @@
     "build-desktop": "npm run tauri build",
     "start-mobile": "npm run build && npx cap sync && (npx cap open android || npx cap open ios)",
     "sync-mobile": "npm run build && npx cap sync",
+    "verify:platforms": "ts-node --esm verification_scripts/verify_platforms.ts",
     "verify:providers": "ts-node --esm verification_scripts/verify_providers.ts",
     "test:transcript": "ts-node --esm verification_scripts/transcript_pipeline.test.ts",
     "test:unit": "ts-node --esm verification_scripts/unit.test.ts",
