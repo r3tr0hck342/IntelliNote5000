@@ -30,8 +30,10 @@ INTELLINOTE5000
 ### Streaming Transcription (Word-by-Word)
 - **Provider**: Deepgram streaming WebSocket API (interim + final results).
 - Configure in **Settings → Transcription Provider** or via `.env.local` keys.
-- Live lecture sessions store both interim and final transcript segments with timestamps, confidence, and speaker labels when available.
-- Audio recordings are captured alongside transcripts and stored as data URLs for quick replay/fallback (consider offloading large files in production).
+- **Audio format**: PCM 16-bit, mono, 16 kHz (captured via Web Audio and streamed as `linear16` frames).
+- Live lecture sessions store interim and final transcript segments (with utterance IDs when available) plus timestamps, confidence, and speaker labels.
+- The recorder always stores the full audio capture locally; if streaming drops, you can run **Transcribe After Recording** to process the saved audio via Deepgram’s prerecorded API.
+- Reconnect behavior: exponential backoff (up to ~10s) with a capped number of retries; audio capture continues during reconnect attempts.
 
 Add new providers by creating an adapter in `services/providers/` and surfacing it in Settings.
 
@@ -53,7 +55,8 @@ Use `npm run verify:providers` to ensure new provider configurations satisfy the
 
 ## Troubleshooting
 - **AI requests fail**: Open the Diagnostics panel (Settings → Diagnostics) and confirm provider + error codes. Re-save your API key or regenerate it.
-- **STT connection error**: Confirm your Deepgram key and that your network allows WebSocket connections.
+- **STT connection error**: Confirm your Deepgram key, ensure your network allows WebSocket connections, and verify mic permissions are granted.
+- **Interim transcripts not updating**: Ensure the provider is configured for interim results and that the app stays in the foreground (backgrounding may auto-pause).
 - **Keys not persisting on web**: Enable the localStorage fallback toggle in Settings.
 - **Microphone blocked**: Check browser permissions or update native Info.plist/AndroidManifest entries.
 

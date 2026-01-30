@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { MicIcon, StopIcon, PauseIcon, PlayIcon } from './icons';
 import { LectureAsset, StudySession, TranscriptSegment } from '../types';
+import type { StreamingSttConfig } from '../types/stt';
 import { getRequiredSttConfig } from '../utils/transcriptionConfig';
-import { createStreamingSttProvider } from '../services/stt';
-import { buildTranscriptText, createId, finalizeSegment, upsertInterimSegment } from '../utils/transcript';
+import { createStreamingSttProvider, transcribeRecordedAudio } from '../services/stt';
+import { buildTranscriptText, createId, finalizeSegment, mergeFinalSegments, upsertInterimSegment } from '../utils/transcript';
 import { logEvent } from '../utils/logger';
 import { pushToast } from '../utils/toastStore';
 import { RingBuffer } from '../utils/ringBuffer';
+import { mapSttError } from '../services/stt/errors';
 import type { SttError } from '../services/stt/errors';
 
 interface LiveNoteTakerProps {
@@ -22,6 +24,10 @@ const AUDIO_BUFFER_CAPACITY = 40;
 const AUDIO_FLUSH_INTERVAL_MS = 50;
 const AUDIO_FRAMES_PER_FLUSH = 4;
 const INTERIM_UPDATE_DEBOUNCE_MS = 1500;
+const RECONNECT_BASE_DELAY_MS = 1000;
+const RECONNECT_MAX_DELAY_MS = 10000;
+const RECONNECT_MAX_ATTEMPTS = 5;
+const TARGET_SAMPLE_RATE = 16000;
 
 const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
     isSttReady,
@@ -39,35 +45,44 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
     const [newSessionTopic, setNewSessionTopic] = useState('');
     const supportsLiveTranscription = Boolean(isSttReady);
 
-    const [finalSegments, setFinalSegments] = useState<TranscriptSegment[]>([]);
-    const [interimText, setInterimText] = useState('');
+    const [segments, setSegments] = useState<TranscriptSegment[]>([]);
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [audioLevel, setAudioLevel] = useState(0);
+    const [isPostTranscribing, setIsPostTranscribing] = useState(false);
+    const [postTranscribeError, setPostTranscribeError] = useState<string | null>(null);
+    const [hasRecordedAudio, setHasRecordedAudio] = useState(false);
     
-    type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error' | 'closed';
+    type ConnectionStatus = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'paused' | 'error' | 'closed';
     const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
 
     const segmentsRef = useRef<TranscriptSegment[]>([]);
-    const interimTextRef = useRef(interimText);
-    useEffect(() => { interimTextRef.current = interimText; }, [interimText]);
     const isPausedRef = useRef(isPaused);
     useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+    const connectionStatusRef = useRef(connectionStatus);
+    useEffect(() => { connectionStatusRef.current = connectionStatus; }, [connectionStatus]);
 
     const mediaStreamRef = useRef<MediaStream | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
-    const streamingSessionRef = useRef<Awaited<ReturnType<ReturnType<typeof createStreamingSttProvider>['start']>> | null>(null);
+    const streamingSessionRef = useRef<ReturnType<ReturnType<typeof createStreamingSttProvider>['createSession']> | null>(null);
+    const streamingProviderRef = useRef<ReturnType<typeof createStreamingSttProvider> | null>(null);
     const interimSegmentIdRef = useRef<string | null>(null);
     const timerRef = useRef<number | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
+    const recordedAudioRef = useRef<Blob | null>(null);
+    const recordedAudioMimeRef = useRef<string>('audio/webm');
     const activeSessionIdRef = useRef<string | null>(null);
     const activeAssetIdRef = useRef<string | null>(null);
     const startTimeRef = useRef<number>(0);
+    const streamConfigRef = useRef<StreamingSttConfig | null>(null);
     const audioBufferRef = useRef(new RingBuffer<Int16Array>(AUDIO_BUFFER_CAPACITY));
     const audioFlushRef = useRef<number | null>(null);
     const droppedFramesRef = useRef(0);
     const interimFlushRef = useRef<number | null>(null);
+    const reconnectAttemptRef = useRef(0);
+    const reconnectTimerRef = useRef<number | null>(null);
+    const autoPausedRef = useRef(false);
 
     const pushTranscriptUpdate = useCallback((segments: TranscriptSegment[], hasFinalUpdate: boolean, audioPath?: string) => {
         const sessionId = activeSessionIdRef.current;
@@ -75,6 +90,12 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
         if (!sessionId || !assetId) return;
         onTranscriptUpdate(sessionId, assetId, segments, buildTranscriptText(segments), hasFinalUpdate, audioPath);
     }, [onTranscriptUpdate]);
+
+    const commitSegments = useCallback((nextSegments: TranscriptSegment[], hasFinalUpdate: boolean) => {
+        segmentsRef.current = nextSegments;
+        setSegments(nextSegments);
+        pushTranscriptUpdate(nextSegments, hasFinalUpdate);
+    }, [pushTranscriptUpdate]);
 
     const scheduleInterimFlush = useCallback(() => {
         if (interimFlushRef.current) return;
@@ -84,9 +105,124 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
         }, INTERIM_UPDATE_DEBOUNCE_MS);
     }, [pushTranscriptUpdate]);
 
+    const handleStreamingError = useCallback((err: SttError) => {
+        console.error('Live session error:', err);
+        const message = err.code === 'auth_failed'
+            ? 'Transcription authentication failed. Check your API key.'
+            : 'A streaming error occurred. Attempting to reconnect.';
+        setError(message);
+        pushToast({
+            title: 'Transcription error',
+            description: message,
+            variant: 'error',
+            action: err.retryable
+                ? {
+                    label: 'Retry',
+                    onAction: () => startRecording(),
+                }
+                : undefined,
+        });
+        logEvent('error', 'STT error', { code: err.code, retryable: err.retryable });
+        if (!err.retryable || err.code === 'auth_failed') {
+            setConnectionStatus('error');
+            streamingSessionRef.current?.stop();
+            return;
+        }
+        setConnectionStatus('reconnecting');
+    }, [startRecording]);
+
+    const scheduleReconnect = useCallback(async () => {
+        const streamConfig = streamConfigRef.current;
+        const assetId = activeAssetIdRef.current;
+        if (!streamConfig || !assetId || !isRecording) return;
+        if (reconnectAttemptRef.current >= RECONNECT_MAX_ATTEMPTS) {
+            setConnectionStatus('error');
+            setError('Streaming connection lost. You can still transcribe after recording.');
+            return;
+        }
+        const attempt = reconnectAttemptRef.current;
+        reconnectAttemptRef.current += 1;
+        const delay = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * Math.pow(2, attempt));
+        setConnectionStatus('reconnecting');
+        if (reconnectTimerRef.current) {
+            window.clearTimeout(reconnectTimerRef.current);
+        }
+        reconnectTimerRef.current = window.setTimeout(async () => {
+            try {
+                const provider = streamingProviderRef.current;
+                if (!provider) return;
+                const session = provider.createSession(streamConfig, {
+                    onInterim: (result) => {
+                        const interimId = result.utteranceId
+                            ? `segment-interim-${result.utteranceId}`
+                            : interimSegmentIdRef.current ?? createId('segment-interim');
+                        interimSegmentIdRef.current = interimId;
+                        const createdAt = new Date().toISOString();
+                        const segment: TranscriptSegment = {
+                            id: interimId,
+                            assetId,
+                            startMs: result.startMs ?? 0,
+                            endMs: result.endMs ?? 0,
+                            text: result.text,
+                            isFinal: false,
+                            confidence: result.confidence,
+                            speaker: result.words?.[0]?.speaker,
+                            utteranceId: result.utteranceId,
+                            createdAt,
+                        };
+                        const nextSegments = upsertInterimSegment(segmentsRef.current, segment);
+                        commitSegments(nextSegments, false);
+                        scheduleInterimFlush();
+                    },
+                    onFinal: (result) => {
+                        const createdAt = new Date().toISOString();
+                        const segment: TranscriptSegment = {
+                            id: createId('segment-final'),
+                            assetId,
+                            startMs: result.startMs ?? 0,
+                            endMs: result.endMs ?? 0,
+                            text: result.text,
+                            isFinal: true,
+                            confidence: result.confidence,
+                            speaker: result.words?.[0]?.speaker,
+                            utteranceId: result.utteranceId,
+                            createdAt,
+                        };
+                        const nextSegments = finalizeSegment(segmentsRef.current, segment, interimSegmentIdRef.current ?? undefined);
+                        interimSegmentIdRef.current = null;
+                        commitSegments(nextSegments, true);
+                        logEvent('debug', 'Transcript segment finalized', { finalSegments: nextSegments.length });
+                    },
+                    onError: (err) => {
+                        handleStreamingError(err);
+                        if (err.retryable) {
+                            scheduleReconnect();
+                        }
+                    },
+                    onStateChange: (state) => {
+                        if (state === 'connected') {
+                            setConnectionStatus(isPausedRef.current ? 'paused' : 'live');
+                        }
+                        if (state === 'paused') {
+                            setConnectionStatus('paused');
+                        }
+                        if (state === 'closed' && isRecording && !isPausedRef.current) {
+                            scheduleReconnect();
+                        }
+                    },
+                });
+                streamingSessionRef.current = session;
+                await session.connect();
+            } catch (error) {
+                handleStreamingError(mapSttError(error));
+            }
+        }, delay);
+    }, [commitSegments, handleStreamingError, isRecording, scheduleInterimFlush]);
+
     const stopRecording = useCallback((isError = false) => {
         setIsRecording(false);
         setIsPaused(false);
+        autoPausedRef.current = false;
 
         mediaStreamRef.current?.getTracks().forEach(track => track.stop());
         scriptProcessorRef.current?.disconnect();
@@ -96,6 +232,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
 
         streamingSessionRef.current?.stop();
         streamingSessionRef.current = null;
+        streamingProviderRef.current = null;
         if (timerRef.current) {
             window.clearInterval(timerRef.current);
             timerRef.current = null;
@@ -108,6 +245,11 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             window.clearTimeout(interimFlushRef.current);
             interimFlushRef.current = null;
         }
+        if (reconnectTimerRef.current) {
+            window.clearTimeout(reconnectTimerRef.current);
+            reconnectTimerRef.current = null;
+        }
+        reconnectAttemptRef.current = 0;
         audioBufferRef.current.clear();
         setElapsedSeconds(0);
         setAudioLevel(0);
@@ -117,40 +259,40 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
         }
         
         if (!isError) {
-            if (interimTextRef.current.trim() && activeAssetIdRef.current) {
+            const interimSegment = segmentsRef.current.find(segment => !segment.isFinal);
+            if (interimSegment && activeAssetIdRef.current) {
                 const createdAt = new Date().toISOString();
                 const finalSegment: TranscriptSegment = {
+                    ...interimSegment,
                     id: createId('segment-final'),
-                    assetId: activeAssetIdRef.current,
-                    startMs: 0,
-                    endMs: Math.max(0, Date.now() - startTimeRef.current),
-                    text: interimTextRef.current,
                     isFinal: true,
+                    endMs: interimSegment.endMs || Math.max(0, Date.now() - startTimeRef.current),
                     createdAt,
                 };
-                segmentsRef.current = finalizeSegment(segmentsRef.current, finalSegment, interimSegmentIdRef.current ?? undefined);
-                pushTranscriptUpdate(segmentsRef.current, true);
-                setFinalSegments(segmentsRef.current);
+                const nextSegments = finalizeSegment(segmentsRef.current, finalSegment, interimSegmentIdRef.current ?? undefined);
+                commitSegments(nextSegments, true);
                 interimSegmentIdRef.current = null;
             }
             segmentsRef.current = [];
-            setFinalSegments([]);
-            setInterimText('');
+            setSegments([]);
         }
 
         if (connectionStatus !== 'error') {
              setConnectionStatus('idle');
         }
         logEvent('info', 'STT session stopped', { reason: isError ? 'error' : 'user' });
-    }, [connectionStatus, pushTranscriptUpdate]);
+    }, [commitSegments, connectionStatus]);
 
     const startRecording = async () => {
         segmentsRef.current = [];
-        setFinalSegments([]);
-        setInterimText('');
+        setSegments([]);
         setError(null);
+        setPostTranscribeError(null);
         interimSegmentIdRef.current = null;
         droppedFramesRef.current = 0;
+        reconnectAttemptRef.current = 0;
+        recordedAudioRef.current = null;
+        setHasRecordedAudio(false);
 
         try {
             if (!supportsLiveTranscription) {
@@ -179,6 +321,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             const sttConfig = getRequiredSttConfig();
             logEvent('info', 'Initializing STT provider', { provider: sttConfig.provider, language: sttConfig.language });
             const provider = createStreamingSttProvider(sttConfig);
+            streamingProviderRef.current = provider;
             mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     echoCancellation: true,
@@ -199,6 +342,9 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             };
             mediaRecorderRef.current.onstop = () => {
                 const blob = new Blob(audioChunksRef.current, { type: mimeType ?? 'audio/webm' });
+                recordedAudioRef.current = blob;
+                recordedAudioMimeRef.current = mimeType ?? 'audio/webm';
+                setHasRecordedAudio(blob.size > 0);
                 const reader = new FileReader();
                 reader.onloadend = () => {
                     const base64 = typeof reader.result === 'string' ? reader.result : undefined;
@@ -210,87 +356,93 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             };
             mediaRecorderRef.current.start(1000);
 
-            streamingSessionRef.current = await provider.start(
-                {
-                    sampleRate: 16000,
-                    language: sttConfig.language ?? 'en-US',
-                    model: sttConfig.model ?? 'nova-2',
-                    enableInterimResults: true,
+            const streamConfig: StreamingSttConfig = {
+                sampleRate: TARGET_SAMPLE_RATE,
+                language: sttConfig.language ?? 'en-US',
+                model: sttConfig.model ?? 'nova-2',
+                enableInterimResults: true,
+            };
+            streamConfigRef.current = streamConfig;
+
+            const session = provider.createSession(streamConfig, {
+                onInterim: (result) => {
+                    const interimId = result.utteranceId
+                        ? `segment-interim-${result.utteranceId}`
+                        : interimSegmentIdRef.current ?? createId('segment-interim');
+                    interimSegmentIdRef.current = interimId;
+                    const createdAt = new Date().toISOString();
+                    const segment: TranscriptSegment = {
+                        id: interimId,
+                        assetId,
+                        startMs: result.startMs ?? 0,
+                        endMs: result.endMs ?? 0,
+                        text: result.text,
+                        isFinal: false,
+                        confidence: result.confidence,
+                        speaker: result.words?.[0]?.speaker,
+                        utteranceId: result.utteranceId,
+                        createdAt,
+                    };
+                    const nextSegments = upsertInterimSegment(segmentsRef.current, segment);
+                    commitSegments(nextSegments, false);
+                    scheduleInterimFlush();
                 },
-                {
-                    onInterim: (result) => {
-                        const interimId = interimSegmentIdRef.current ?? createId('segment-interim');
-                        interimSegmentIdRef.current = interimId;
-                        const createdAt = new Date().toISOString();
-                        const segment: TranscriptSegment = {
-                            id: interimId,
-                            assetId,
-                            startMs: result.startMs ?? 0,
-                            endMs: result.endMs ?? 0,
-                            text: result.text,
-                            isFinal: false,
-                            confidence: result.confidence,
-                            speaker: result.words?.[0]?.speaker,
-                            createdAt,
-                        };
-                        segmentsRef.current = upsertInterimSegment(segmentsRef.current, segment);
-                        scheduleInterimFlush();
-                        setInterimText(result.text);
-                    },
-                    onFinal: (result) => {
-                        const createdAt = new Date().toISOString();
-                        const segment: TranscriptSegment = {
-                            id: createId('segment-final'),
-                            assetId,
-                            startMs: result.startMs ?? 0,
-                            endMs: result.endMs ?? 0,
-                            text: result.text,
-                            isFinal: true,
-                            confidence: result.confidence,
-                            speaker: result.words?.[0]?.speaker,
-                            createdAt,
-                        };
-                        segmentsRef.current = finalizeSegment(segmentsRef.current, segment, interimSegmentIdRef.current ?? undefined);
-                        interimSegmentIdRef.current = null;
-                        setFinalSegments(segmentsRef.current);
-                        pushTranscriptUpdate(segmentsRef.current, true);
-                        logEvent('debug', 'Transcript segment finalized', { finalSegments: segmentsRef.current.length });
-                        setInterimText('');
-                    },
-                    onError: (err: SttError) => {
-                        console.error('Live session error:', err);
-                        const message = err.code === 'auth_failed'
-                            ? 'Transcription authentication failed. Check your API key.'
-                            : 'A streaming error occurred. Please retry.';
-                        setError(message);
-                        pushToast({
-                            title: 'Transcription error',
-                            description: message,
-                            variant: 'error',
-                            action: err.retryable
-                                ? {
-                                    label: 'Retry',
-                                    onAction: () => startRecording(),
-                                }
-                                : undefined,
-                        });
-                        setConnectionStatus('error');
-                        logEvent('error', 'STT error', { code: err.code, retryable: err.retryable });
-                        stopRecording(true);
-                    },
-                    onClose: () => {
-                        if (connectionStatus !== 'error') {
+                onFinal: (result) => {
+                    const createdAt = new Date().toISOString();
+                    const segment: TranscriptSegment = {
+                        id: createId('segment-final'),
+                        assetId,
+                        startMs: result.startMs ?? 0,
+                        endMs: result.endMs ?? 0,
+                        text: result.text,
+                        isFinal: true,
+                        confidence: result.confidence,
+                        speaker: result.words?.[0]?.speaker,
+                        utteranceId: result.utteranceId,
+                        createdAt,
+                    };
+                    const nextSegments = finalizeSegment(segmentsRef.current, segment, interimSegmentIdRef.current ?? undefined);
+                    interimSegmentIdRef.current = null;
+                    commitSegments(nextSegments, true);
+                    logEvent('debug', 'Transcript segment finalized', { finalSegments: nextSegments.length });
+                },
+                onError: (err) => {
+                    handleStreamingError(err);
+                    if (err.retryable) {
+                        scheduleReconnect();
+                    }
+                },
+                onStateChange: (state) => {
+                    if (state === 'connecting') {
+                        setConnectionStatus('connecting');
+                    }
+                    if (state === 'connected') {
+                        reconnectAttemptRef.current = 0;
+                        setConnectionStatus(isPausedRef.current ? 'paused' : 'live');
+                        logEvent('info', 'STT connection established');
+                    }
+                    if (state === 'paused') {
+                        setConnectionStatus('paused');
+                    }
+                    if (state === 'closed') {
+                        if (connectionStatusRef.current !== 'error') {
                             setConnectionStatus('closed');
                         }
+                        if (isRecording && !isPausedRef.current) {
+                            scheduleReconnect();
+                        }
                         logEvent('info', 'STT connection closed');
-                    },
-                }
-            );
-            
-            setConnectionStatus('connected');
-            logEvent('info', 'STT connection established');
+                    }
+                },
+            });
+
+            streamingSessionRef.current = session;
+            await session.connect();
             if (!mediaStreamRef.current) return;
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: TARGET_SAMPLE_RATE });
+            if (audioContextRef.current.sampleRate !== TARGET_SAMPLE_RATE) {
+                logEvent('warn', 'AudioContext sample rate mismatch', { actual: audioContextRef.current.sampleRate, expected: TARGET_SAMPLE_RATE });
+            }
             const source = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
             scriptProcessorRef.current = audioContextRef.current.createScriptProcessor(4096, 1, 1);
             
@@ -309,12 +461,14 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                     if (droppedFramesRef.current % 10 === 0) {
                         logEvent('warn', 'Audio buffer backpressure', { droppedFrames: droppedFramesRef.current });
                     }
+                    return;
                 }
                 buffer.push(int16);
             };
 
             audioFlushRef.current = window.setInterval(() => {
                 if (isPausedRef.current) return;
+                if (connectionStatusRef.current !== 'live') return;
                 const session = streamingSessionRef.current;
                 if (!session) return;
                 const buffer = audioBufferRef.current;
@@ -362,8 +516,36 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
         };
     }, [isRecording, stopRecording]);
 
+    useEffect(() => {
+        const handleVisibility = () => {
+            if (!isRecording) return;
+            if (document.hidden) {
+                if (!isPausedRef.current) {
+                    autoPausedRef.current = true;
+                    pauseRecording();
+                }
+            } else if (autoPausedRef.current) {
+                autoPausedRef.current = false;
+                resumeRecording();
+            }
+        };
+        const handlePageHide = () => {
+            if (isRecording) {
+                stopRecording();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibility);
+        window.addEventListener('pagehide', handlePageHide);
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibility);
+            window.removeEventListener('pagehide', handlePageHide);
+        };
+    }, [isRecording, pauseRecording, resumeRecording, stopRecording]);
+
     const pauseRecording = () => {
         setIsPaused(true);
+        streamingSessionRef.current?.pause();
+        setConnectionStatus('paused');
         if (mediaRecorderRef.current?.state === 'recording') {
             mediaRecorderRef.current.pause();
         }
@@ -371,8 +553,48 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
 
     const resumeRecording = () => {
         setIsPaused(false);
+        streamingSessionRef.current?.resume();
+        if (connectionStatusRef.current !== 'live') {
+            scheduleReconnect();
+        }
         if (mediaRecorderRef.current?.state === 'paused') {
             mediaRecorderRef.current.resume();
+        }
+    };
+
+    const transcribeAfterRecording = async () => {
+        const assetId = activeAssetIdRef.current;
+        const recordedAudio = recordedAudioRef.current;
+        if (!recordedAudio || !assetId) return;
+        setIsPostTranscribing(true);
+        setPostTranscribeError(null);
+        try {
+            const sttConfig = getRequiredSttConfig();
+            const result = await transcribeRecordedAudio(
+                sttConfig,
+                { blob: recordedAudio, mimeType: recordedAudioMimeRef.current },
+                { language: sttConfig.language, model: sttConfig.model }
+            );
+            const createdAt = new Date().toISOString();
+            const incomingSegments = result.segments.map(segment => ({
+                id: createId('segment-final'),
+                assetId,
+                startMs: segment.startMs ?? 0,
+                endMs: segment.endMs ?? 0,
+                text: segment.text,
+                isFinal: true,
+                confidence: segment.confidence,
+                speaker: segment.words?.[0]?.speaker,
+                utteranceId: segment.utteranceId,
+                createdAt,
+            }));
+            const merged = mergeFinalSegments(segmentsRef.current, incomingSegments);
+            commitSegments(merged, true);
+        } catch (err) {
+            console.error('Failed to transcribe recorded audio:', err);
+            setPostTranscribeError('Failed to transcribe recorded audio. Please try again.');
+        } finally {
+            setIsPostTranscribing(false);
         }
     };
 
@@ -388,10 +610,19 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                 color = 'bg-yellow-500';
                 text = 'Connecting...';
                 break;
-            case 'connected':
+            case 'live':
                 color = 'bg-green-500';
-                text = 'Connected & Listening';
+                text = 'Live';
                 pulse = true;
+                break;
+            case 'reconnecting':
+                color = 'bg-yellow-500';
+                text = 'Reconnecting...';
+                pulse = true;
+                break;
+            case 'paused':
+                color = 'bg-blue-500';
+                text = 'Paused';
                 break;
             case 'error':
                 color = 'bg-red-500';
@@ -412,9 +643,14 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
     }
     
     const transcriptText = useMemo(() => {
-        const finalText = finalSegments.map(s => s.text).join(' ');
+        const finalText = segments.filter(s => s.isFinal).map(s => s.text).join(' ');
         return finalText;
-    }, [finalSegments]);
+    }, [segments]);
+
+    const interimText = useMemo(() => {
+        const interimSegment = segments.find(segment => !segment.isFinal);
+        return interimSegment?.text ?? '';
+    }, [segments]);
 
     return (
         <div className="relative flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800 p-8 text-center">
@@ -520,6 +756,21 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                     {!transcriptText && !interimText && <span className="text-gray-400 dark:text-gray-500">Waiting for audio...</span>}
                 </p>
             </div>
+            {!isRecording && hasRecordedAudio && (
+                <div className="mt-4 flex flex-col items-center space-y-2">
+                    <button
+                        onClick={transcribeAfterRecording}
+                        disabled={isPostTranscribing || !isSttReady}
+                        className="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {isPostTranscribing ? 'Transcribing...' : 'Transcribe After Recording'}
+                    </button>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Use your configured transcription provider to process the saved audio.
+                    </p>
+                </div>
+            )}
+            {postTranscribeError && <p className="text-red-500 dark:text-red-400 mt-2">{postTranscribeError}</p>}
             {error && <p className="text-red-500 dark:text-red-400 mt-4">{error}</p>}
         </div>
     );

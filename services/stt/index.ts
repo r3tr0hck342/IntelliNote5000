@@ -1,4 +1,4 @@
-import { SttConfig } from '../../types/stt';
+import { SttConfig, SttRecordedAudio, SttTranscriptResult } from '../../types/stt';
 import { StreamingSttProvider } from './types';
 import { createDeepgramProvider } from './deepgramProvider';
 
@@ -30,4 +30,16 @@ export const createStreamingSttProvider = (config: SttConfig): StreamingSttProvi
     default:
       return createDeepgramProvider(config);
   }
+};
+
+export const transcribeRecordedAudio = async (
+  config: SttConfig,
+  audio: SttRecordedAudio,
+  options?: { language?: string; model?: string }
+): Promise<SttTranscriptResult> => {
+  const provider = createStreamingSttProvider(config);
+  if (!provider.transcribeAudio) {
+    throw new Error('Selected STT provider does not support prerecorded transcription.');
+  }
+  return provider.transcribeAudio(audio, { language: options?.language, model: options?.model });
 };

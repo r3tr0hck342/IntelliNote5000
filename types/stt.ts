@@ -28,9 +28,20 @@ export interface SttInterimResult {
   endMs?: number;
   confidence?: number;
   words?: SttWord[];
+  utteranceId?: string;
 }
 
 export interface SttFinalResult extends SttInterimResult {
   isFinal: true;
 }
 
+export interface SttTranscriptResult {
+  text: string;
+  segments: SttFinalResult[];
+}
+
+export interface SttRecordedAudio {
+  blob: Blob;
+  mimeType: string;
+  sampleRate?: number;
+}
