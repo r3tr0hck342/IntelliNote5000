@@ -59,7 +59,10 @@ Run the release verification script before packaging native builds:
 npm run verify:release
 ```
 
-This runs linting, type checks, unit tests, a production build, and a release-specific verification script that validates native configuration files, permission strings, and required Capacitor/Tauri assets. Fix any reported errors before cutting a release.
+This verifies native configuration files, permission strings, and required Capacitor/Tauri assets. Run linting, type checks, unit tests, and a production build before cutting a release. Fix any reported errors before cutting a release.
+
+### CI Release Gate
+Pull requests and pushes to `main` run linting, type checks, unit tests, a production build, and the release verification script via GitHub Actions. This blocks merges unless the project is package-ready.
 
 ## Production Checklist
 - ✅ Configure AI + STT providers in Settings and verify credentials.
