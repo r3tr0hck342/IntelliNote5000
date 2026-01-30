@@ -34,7 +34,10 @@ export const upsertInterimSegment = (
   segments: TranscriptSegment[],
   interimSegment: TranscriptSegment
 ): TranscriptSegment[] => {
-  const existingIndex = segments.findIndex(segment => segment.id === interimSegment.id);
+  const existingIndex = segments.findIndex(segment =>
+    (segment.utteranceId && interimSegment.utteranceId && segment.utteranceId === interimSegment.utteranceId) ||
+    segment.id === interimSegment.id
+  );
   if (existingIndex >= 0) {
     const updated = [...segments];
     updated[existingIndex] = interimSegment;
@@ -48,8 +51,34 @@ export const finalizeSegment = (
   finalSegment: TranscriptSegment,
   interimId?: string
 ): TranscriptSegment[] => {
-  const withoutInterim = interimId
-    ? segments.filter(segment => segment.id !== interimId)
-    : segments.filter(segment => segment.isFinal);
+  const withoutInterim = segments.filter(segment => {
+    if (finalSegment.utteranceId && segment.utteranceId === finalSegment.utteranceId) {
+      return false;
+    }
+    if (interimId && segment.id === interimId) {
+      return false;
+    }
+    return segment.isFinal;
+  });
   return [...withoutInterim, finalSegment];
+};
+
+export const mergeFinalSegments = (
+  existing: TranscriptSegment[],
+  incoming: TranscriptSegment[]
+): TranscriptSegment[] => {
+  const finals = existing.filter(segment => segment.isFinal);
+  const merged = [...finals];
+  for (const segment of incoming) {
+    const matchIndex = merged.findIndex(item =>
+      (segment.utteranceId && item.utteranceId === segment.utteranceId) ||
+      (item.text === segment.text && item.startMs === segment.startMs && item.endMs === segment.endMs)
+    );
+    if (matchIndex >= 0) {
+      merged[matchIndex] = segment;
+    } else {
+      merged.push(segment);
+    }
+  }
+  return merged.sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0));
 };

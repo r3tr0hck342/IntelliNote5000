@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { upsertInterimSegment, finalizeSegment } from '../utils/transcript.ts';
+import { upsertInterimSegment, finalizeSegment, mergeFinalSegments } from '../utils/transcript.ts';
 import { migrateLegacyLectures, migratePersistedSessions, getSessionSchemaVersion } from '../utils/sessionStorage.ts';
 import { mapProviderError } from '../services/providers/errors.ts';
 
@@ -35,6 +35,42 @@ const testTranscriptReconciliation = () => {
   const finalized = finalizeSegment(withInterim, finalSegment, interimSegment.id);
   assert.equal(finalized.length, 2, 'Should replace interim with final');
   assert.ok(finalized.every(segment => segment.isFinal), 'All segments should be final');
+
+  const interimUtterance = {
+    ...interimSegment,
+    id: 'segment-interim-utterance',
+    utteranceId: 'utterance-1',
+    text: 'interim update',
+  };
+  const withUtterance = upsertInterimSegment(finalized, interimUtterance);
+  assert.equal(withUtterance.length, 3, 'Should append utterance interim segment');
+  const updatedUtterance = {
+    ...interimUtterance,
+    text: 'interim update v2',
+  };
+  const withUtteranceUpdate = upsertInterimSegment(withUtterance, updatedUtterance);
+  assert.equal(withUtteranceUpdate.length, 3, 'Should update interim segment by utterance id');
+  const finalUtterance = {
+    ...interimUtterance,
+    id: 'segment-final-utterance',
+    text: 'utterance final',
+    isFinal: true,
+  };
+  const finalizedUtterance = finalizeSegment(withUtteranceUpdate, finalUtterance);
+  assert.equal(finalizedUtterance.length, 3, 'Should finalize utterance without duplicates');
+  const merged = mergeFinalSegments(finalizedUtterance, [
+    { ...finalUtterance, id: 'segment-final-utterance-dup' },
+    {
+      id: 'segment-final-3',
+      assetId: 'asset-1',
+      startMs: 2000,
+      endMs: 2500,
+      text: 'merged',
+      isFinal: true,
+      createdAt: new Date().toISOString(),
+    },
+  ]);
+  assert.equal(merged.length, 4, 'Should merge new final segments without duplicates');
 };
 
 const testSessionMigration = () => {

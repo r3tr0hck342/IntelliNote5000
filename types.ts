@@ -17,6 +17,7 @@ export interface TranscriptSegment {
     isFinal: boolean;
     confidence?: number;
     speaker?: string;
+    utteranceId?: string;
     createdAt: string;
 }
 
