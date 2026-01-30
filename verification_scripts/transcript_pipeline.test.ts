@@ -21,6 +21,13 @@ assert.equal(timestamped.length, 2);
 assert.equal(timestamped[0].startMs, 1000);
 assert.equal(timestamped[1].startMs, 5000);
 
+const vttTimestamped = normalizeImportedTranscript('WEBVTT\n\n00:12.345 --> 00:15.678\nHello VTT\n\n00:20.000 --> 00:21.500\nSecond line', 'asset-1', createdAt);
+assert.equal(vttTimestamped.length, 2);
+assert.equal(vttTimestamped[0].startMs, 12345);
+assert.equal(vttTimestamped[0].endMs, 15678);
+assert.equal(vttTimestamped[1].startMs, 20000);
+assert.equal(vttTimestamped[1].endMs, 21500);
+
 const interim = {
   id: 'segment-interim',
   assetId: 'asset-1',

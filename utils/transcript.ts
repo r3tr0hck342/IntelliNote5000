@@ -79,7 +79,7 @@ const parseSrtVttSegments = (text: string, assetId: string, createdAt: string): 
       i += 1;
       continue;
     }
-    const timeMatch = line.match(/^(\d{1,2}:\d{2}:\d{2}[\.,]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[\.,]\d{1,3})/);
+    const timeMatch = line.match(/^((?:\d{1,2}:)?\d{2}:\d{2}(?:[\.,]\d{1,3})?)\s*-->\s*((?:\d{1,2}:)?\d{2}:\d{2}(?:[\.,]\d{1,3})?)/);
     if (!timeMatch) {
       i += 1;
       continue;

@@ -21,7 +21,7 @@ export const parseFile = async (file: File): Promise<Handout | null> => {
                         const page = await pdf.getPage(i);
                         const textContent = await page.getTextContent();
                         content += textContent.items.map(item => ('str' in item ? item.str : '')).join(' ');
-                        content += '\n\n'; // Add space between pages
+                        content += '\n\n'; // Add a blank line between pages
                     }
                     resolve({ name, content });
                 } catch (error) {
