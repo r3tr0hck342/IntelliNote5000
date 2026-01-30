@@ -8,7 +8,7 @@ import ToastViewport from './components/ToastViewport';
 import DiagnosticsPanel from './components/DiagnosticsPanel';
 import { AppView, Handout, TranscriptSegment, GenerationMode, StudySession, LectureAsset } from './types';
 import { BrainIcon, MenuIcon } from './components/icons';
-import { processTranscript, generateTags } from './services/aiService';
+import { processTranscript, generateFlashcards, generateTags } from './services/aiService';
 import { App as CapacitorApp } from '@capacitor/app';
 import mermaid from 'mermaid';
 import { ApiConfig, loadApiConfig, persistApiConfig, clearStoredApiConfig } from './utils/apiConfig';
@@ -57,6 +57,7 @@ const App: React.FC = () => {
   const isSttKeyReady = Boolean(sttConfig?.apiKey);
   const sessionsRef = useRef<StudySession[]>([]);
   const autoGenerationTrackerRef = useRef<Record<string, { lastRunAt: number; pendingFinals: number }>>({});
+  const importPipelineControllersRef = useRef<Record<string, { timeoutId?: number; cancel?: () => void }>>({});
 
   useEffect(() => {
     const checkMobile = () => {
@@ -160,9 +161,22 @@ const App: React.FC = () => {
     setSessions(prevSessions => prevSessions.map(session => session.id === id ? { ...session, ...updates, updatedAt: new Date().toISOString() } : session));
   }, []);
 
-  const triggerAutoGeneration = useCallback(async (session: StudySession) => {
+  type ImportPipelineStage = 'notes' | 'study-guide' | 'test-questions' | 'flashcards' | 'tags';
+  type ImportPipelineStatus = 'queued' | 'running' | 'success' | 'error' | 'cancelled';
+  type ImportPipelineProgress = { stage: ImportPipelineStage; status: ImportPipelineStatus; error?: string };
+
+  const runAiPipeline = useCallback(async (
+    session: StudySession,
+    options?: { onProgress?: (progress: ImportPipelineProgress) => void; isCancelled?: () => boolean }
+  ) => {
     const transcript = session.assets.flatMap(asset => asset.segments).filter(segment => segment.isFinal);
     logEvent('info', 'Auto-generation triggered', { sessionId: session.id, segments: transcript.length });
+
+    const isCancelled = options?.isCancelled ?? (() => false);
+    const report = (stage: ImportPipelineStage, status: ImportPipelineStatus, error?: string) => {
+      options?.onProgress?.({ stage, status, error });
+    };
+    const flashcardCount = 10;
 
     const handleNotesSuccess = (notes: string) => {
       updateSession(session.id, { organizedNotes: notes, organizedNotesStatus: 'success' });
@@ -171,24 +185,89 @@ const App: React.FC = () => {
       updateSession(session.id, { suggestedTags: tags, tagsStatus: 'success' });
     };
 
+    if (isCancelled()) return;
+    report('notes', 'running');
     try {
-        const notes = await processTranscript(transcript, GenerationMode.Notes, session.handouts, false, {
-          onRetrySuccess: handleNotesSuccess,
-        });
+      const notes = await processTranscript(transcript, GenerationMode.Notes, session.handouts, false, {
+        onRetrySuccess: handleNotesSuccess,
+      });
+      if (!isCancelled()) {
         handleNotesSuccess(notes);
+        report('notes', 'success');
+      }
     } catch (e) {
-        console.error("Failed to auto-generate notes:", e);
+      console.error("Failed to auto-generate notes:", e);
+      if (!isCancelled()) {
         updateSession(session.id, { organizedNotesStatus: 'error' });
+        report('notes', 'error', e instanceof Error ? e.message : 'Failed to generate notes');
+      }
     }
-    
+
+    if (isCancelled()) return;
+    report('tags', 'running');
     try {
-        const tags = await generateTags(transcript, session.handouts, { onRetrySuccess: handleTagsSuccess });
+      const tags = await generateTags(transcript, session.handouts, { onRetrySuccess: handleTagsSuccess });
+      if (!isCancelled()) {
         handleTagsSuccess(tags);
+        report('tags', 'success');
+      }
     } catch (e) {
-        console.error("Failed to auto-generate tags:", e);
+      console.error("Failed to auto-generate tags:", e);
+      if (!isCancelled()) {
         updateSession(session.id, { tagsStatus: 'error' });
+        report('tags', 'error', e instanceof Error ? e.message : 'Failed to generate tags');
+      }
+    }
+
+    if (isCancelled()) return;
+    report('study-guide', 'running');
+    try {
+      const guide = await processTranscript(transcript, GenerationMode.StudyGuide, session.handouts, false);
+      if (!isCancelled()) {
+        updateSession(session.id, { studyGuide: guide });
+        report('study-guide', 'success');
+      }
+    } catch (e) {
+      console.error("Failed to auto-generate study guide:", e);
+      if (!isCancelled()) {
+        report('study-guide', 'error', e instanceof Error ? e.message : 'Failed to generate study guide');
+      }
+    }
+
+    if (isCancelled()) return;
+    report('test-questions', 'running');
+    try {
+      const questions = await processTranscript(transcript, GenerationMode.TestQuestions, session.handouts, false);
+      if (!isCancelled()) {
+        updateSession(session.id, { testQuestions: questions });
+        report('test-questions', 'success');
+      }
+    } catch (e) {
+      console.error("Failed to auto-generate test questions:", e);
+      if (!isCancelled()) {
+        report('test-questions', 'error', e instanceof Error ? e.message : 'Failed to generate test questions');
+      }
+    }
+
+    if (isCancelled()) return;
+    report('flashcards', 'running');
+    try {
+      const flashcards = await generateFlashcards(transcript, session.handouts, flashcardCount, false);
+      if (!isCancelled()) {
+        updateSession(session.id, { flashcards });
+        report('flashcards', 'success');
+      }
+    } catch (e) {
+      console.error("Failed to auto-generate flashcards:", e);
+      if (!isCancelled()) {
+        report('flashcards', 'error', e instanceof Error ? e.message : 'Failed to generate flashcards');
+      }
     }
   }, [updateSession]);
+
+  const triggerAutoGeneration = useCallback(async (session: StudySession) => {
+    await runAiPipeline(session);
+  }, [runAiPipeline]);
 
   const scheduleAutoGeneration = useCallback((sessionId: string, delayMs: number) => {
     setSessions(prevSessions =>
@@ -210,6 +289,58 @@ const App: React.FC = () => {
       }
     }, delayMs);
   }, [triggerAutoGeneration]);
+
+  const queueImportPipeline = useCallback((sessionId: string, onProgress?: (progress: ImportPipelineProgress) => void) => {
+    const stages: ImportPipelineStage[] = ['notes', 'tags', 'study-guide', 'test-questions', 'flashcards'];
+    const existing = importPipelineControllersRef.current[sessionId];
+    if (existing?.timeoutId) {
+      window.clearTimeout(existing.timeoutId);
+    }
+    if (existing?.cancel) {
+      existing.cancel();
+    }
+
+    let cancelled = false;
+    let resolveDone: () => void;
+    const done = new Promise<void>(resolve => {
+      resolveDone = resolve;
+    });
+
+    const cancel = () => {
+      if (cancelled) return;
+      cancelled = true;
+      stages.forEach(stage => onProgress?.({ stage, status: 'cancelled' }));
+      resolveDone();
+    };
+
+    stages.forEach(stage => onProgress?.({ stage, status: 'queued' }));
+
+    const timeoutId = window.setTimeout(async () => {
+      if (cancelled) {
+        resolveDone();
+        return;
+      }
+      setSessions(prevSessions =>
+        prevSessions.map(session =>
+          session.id === sessionId
+            ? { ...session, organizedNotesStatus: 'generating', tagsStatus: 'generating', updatedAt: new Date().toISOString() }
+            : session
+        )
+      );
+      const session = sessionsRef.current.find(item => item.id === sessionId);
+      if (session) {
+        await runAiPipeline(session, {
+          onProgress,
+          isCancelled: () => cancelled,
+        });
+      }
+      resolveDone();
+    }, autoGenerationConfig.debounceMs);
+
+    importPipelineControllersRef.current[sessionId] = { timeoutId, cancel };
+
+    return { cancel, done };
+  }, [autoGenerationConfig.debounceMs, runAiPipeline]);
 
   const handleCreateSession = useCallback((title: string, topic: string) => {
     const now = new Date();
@@ -304,7 +435,7 @@ const App: React.FC = () => {
     if(isMobile) setIsSidebarOpen(false);
   };
 
-  const handleCreateLectureFromFile = useCallback((data: { title: string; transcript: string; handouts: Handout[]; sessionId?: string }) => {
+  const handleCreateLectureFromFile = useCallback((data: { title: string; transcript: string; handouts: Handout[]; sessionId?: string; onProgress?: (progress: ImportPipelineProgress) => void }) => {
     const now = new Date();
     const sessionId = data.sessionId || handleCreateSession(data.title, '');
     const assetId = createId('asset');
@@ -333,9 +464,8 @@ const App: React.FC = () => {
     setActiveSessionId(sessionId);
     setActiveAssetId(assetId);
     setCurrentView(AppView.Note);
-    setIsUploadModalOpen(false);
-    scheduleAutoGeneration(sessionId, autoGenerationConfig.debounceMs);
-  }, [autoGenerationConfig.debounceMs, handleCreateSession, scheduleAutoGeneration]);
+    return queueImportPipeline(sessionId, data.onProgress);
+  }, [handleCreateSession, queueImportPipeline]);
   
   const handleDeleteLecture = useCallback((idToDelete: string) => {
     if (window.confirm('Are you sure you want to permanently delete this session and all its data?')) {

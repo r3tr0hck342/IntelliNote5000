@@ -35,6 +35,11 @@ INTELLINOTE5000
 - The recorder always stores the full audio capture locally; if streaming drops, you can run **Transcribe After Recording** to process the saved audio via Deepgram’s prerecorded API.
 - Reconnect behavior: exponential backoff (up to ~10s) with a capped number of retries; audio capture continues during reconnect attempts.
 
+### Transcript Import (Production v1)
+- Use **Upload → Import Transcript** to add `.txt` or `.md` transcripts to a new or existing session.
+- The importer normalizes whitespace, preserves paragraphs, and detects timestamps (`[00:12:03]`, `00:12:03.123`, SRT/VTT cues).
+- Imported transcripts run the same AI pipeline as live sessions (notes, study guide, test questions, flashcards, tags) and show progress + cancellation in the import modal.
+
 Add new providers by creating an adapter in `services/providers/` and surfacing it in Settings.
 
 ### Secure API Key Storage
