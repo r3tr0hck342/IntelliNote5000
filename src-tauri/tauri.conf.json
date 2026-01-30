@@ -63,7 +63,7 @@
         "frameworks": [],
         "hardenedRuntime": true,
         "infoPlist": {
-          "NSMicrophoneUsageDescription": "IntelliNote needs microphone access to capture lecture audio for live transcription."
+          "NSMicrophoneUsageDescription": "IntelliNote needs microphone access to record and transcribe lecture audio."
         },
         "providerShortName": null,
         "signingIdentity": null,

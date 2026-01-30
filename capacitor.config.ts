@@ -10,7 +10,7 @@ const config: CapacitorConfig = {
   ios: {
     contentInset: 'always',
     infoPlist: {
-      NSMicrophoneUsageDescription: 'IntelliNote needs microphone access to capture lecture audio for live transcription.',
+      NSMicrophoneUsageDescription: 'IntelliNote needs microphone access to record and transcribe lecture audio.',
       UIBackgroundModes: ['audio']
     }
   },

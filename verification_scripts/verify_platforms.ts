@@ -32,6 +32,9 @@ if (tauriConfPath) {
   requireString(entitlementsPath, 'macOS entitlements path in tauri.conf.json');
   const infoPlist = macOSBundle?.infoPlist;
   requireString(infoPlist?.NSMicrophoneUsageDescription, 'macOS NSMicrophoneUsageDescription in tauri.conf.json');
+  if (macOSBundle?.hardenedRuntime !== true) {
+    errors.push('macOS hardened runtime must be enabled in tauri.conf.json.');
+  }
 
   if (entitlementsPath) {
     const entitlementsFullPath = requireFile(path.join('src-tauri', entitlementsPath));
@@ -58,6 +61,46 @@ if (capacitorConfigPath) {
   }
   if (!capConfig.includes('FOREGROUND_SERVICE')) {
     errors.push('Capacitor Android config missing FOREGROUND_SERVICE permission.');
+  }
+  if (!capConfig.includes('FOREGROUND_SERVICE_MICROPHONE')) {
+    errors.push('Capacitor Android config missing FOREGROUND_SERVICE_MICROPHONE permission.');
+  }
+}
+
+const packageJsonPath = requireFile('package.json');
+if (packageJsonPath) {
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+  const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+  if (!dependencies['capacitor-secure-storage-plugin']) {
+    errors.push('Missing capacitor-secure-storage-plugin dependency for secure storage.');
+  }
+}
+
+const iosInfoPlistPath = path.join(repoRoot, 'ios', 'App', 'App', 'Info.plist');
+if (fs.existsSync(iosInfoPlistPath)) {
+  const infoPlist = fs.readFileSync(iosInfoPlistPath, 'utf-8');
+  if (!infoPlist.includes('NSMicrophoneUsageDescription')) {
+    errors.push('iOS Info.plist missing NSMicrophoneUsageDescription.');
+  }
+  if (!infoPlist.includes('UIBackgroundModes')) {
+    errors.push('iOS Info.plist missing UIBackgroundModes (audio) entry.');
+  }
+  if (!infoPlist.includes('<string>audio</string>')) {
+    errors.push('iOS Info.plist missing audio entry in UIBackgroundModes.');
+  }
+}
+
+const androidManifestPath = path.join(repoRoot, 'android', 'app', 'src', 'main', 'AndroidManifest.xml');
+if (fs.existsSync(androidManifestPath)) {
+  const manifest = fs.readFileSync(androidManifestPath, 'utf-8');
+  if (!manifest.includes('android.permission.RECORD_AUDIO')) {
+    errors.push('AndroidManifest.xml missing RECORD_AUDIO permission.');
+  }
+  if (!manifest.includes('android.permission.FOREGROUND_SERVICE')) {
+    errors.push('AndroidManifest.xml missing FOREGROUND_SERVICE permission.');
+  }
+  if (!manifest.includes('android.permission.FOREGROUND_SERVICE_MICROPHONE')) {
+    errors.push('AndroidManifest.xml missing FOREGROUND_SERVICE_MICROPHONE permission.');
   }
 }
 
