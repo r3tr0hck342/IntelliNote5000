@@ -58,9 +58,13 @@
       "longDescription": "An intelligent note-taking application that listens to lectures in real-time, organizes notes, and generates study materials to enhance your learning experience.",
       "macOS": {
         "bundleIdentifier": "com.intellinote.app",
-        "entitlements": null,
+        "entitlements": "entitlements.plist",
         "exceptionDomain": "",
         "frameworks": [],
+        "hardenedRuntime": true,
+        "infoPlist": {
+          "NSMicrophoneUsageDescription": "IntelliNote needs microphone access to capture lecture audio for live transcription."
+        },
         "providerShortName": null,
         "signingIdentity": null,
         "dmg": {

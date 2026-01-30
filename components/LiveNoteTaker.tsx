@@ -58,6 +58,8 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
     const segmentsRef = useRef<TranscriptSegment[]>([]);
     const isPausedRef = useRef(isPaused);
     useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+    const isRecordingRef = useRef(isRecording);
+    useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
     const connectionStatusRef = useRef(connectionStatus);
     useEffect(() => { connectionStatusRef.current = connectionStatus; }, [connectionStatus]);
 
@@ -83,6 +85,13 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
     const reconnectAttemptRef = useRef(0);
     const reconnectTimerRef = useRef<number | null>(null);
     const autoPausedRef = useRef(false);
+    const mediaTrackHandlersRef = useRef<Array<{
+        track: MediaStreamTrack;
+        onEnded: () => void;
+        onMute: () => void;
+        onUnmute: () => void;
+    }>>([]);
+    const streamInactiveHandlerRef = useRef<(() => void) | null>(null);
 
     const pushTranscriptUpdate = useCallback((segments: TranscriptSegment[], hasFinalUpdate: boolean, audioPath?: string) => {
         const sessionId = activeSessionIdRef.current;
@@ -219,13 +228,69 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
         }, delay);
     }, [commitSegments, handleStreamingError, isRecording, scheduleInterimFlush]);
 
+    const pauseRecording = useCallback(() => {
+        setIsPaused(true);
+        streamingSessionRef.current?.pause();
+        setConnectionStatus('paused');
+        if (mediaRecorderRef.current?.state === 'recording') {
+            mediaRecorderRef.current.pause();
+        }
+    }, []);
+
+    const resumeRecording = useCallback(() => {
+        setIsPaused(false);
+        streamingSessionRef.current?.resume();
+        if (connectionStatusRef.current !== 'live') {
+            scheduleReconnect();
+        }
+        if (mediaRecorderRef.current?.state === 'paused') {
+            mediaRecorderRef.current.resume();
+        }
+    }, [scheduleReconnect]);
+
+    const handleAudioInterruption = useCallback((reason: string) => {
+        if (!isRecordingRef.current) return;
+        if (!isPausedRef.current) {
+            autoPausedRef.current = true;
+            pauseRecording();
+            setError(reason);
+            pushToast({
+                title: 'Recording paused',
+                description: reason,
+                variant: 'warning',
+            });
+        }
+    }, [pauseRecording]);
+
+    const resumeFromInterruption = useCallback(() => {
+        if (autoPausedRef.current) {
+            autoPausedRef.current = false;
+            resumeRecording();
+        }
+    }, [resumeRecording]);
+
     const stopRecording = useCallback((isError = false) => {
         setIsRecording(false);
         setIsPaused(false);
         autoPausedRef.current = false;
 
-        mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+        if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach(track => {
+                track.stop();
+            });
+            mediaStreamRef.current.oninactive = null;
+        }
+        mediaTrackHandlersRef.current.forEach(({ track, onEnded, onMute, onUnmute }) => {
+            track.removeEventListener('ended', onEnded);
+            track.removeEventListener('mute', onMute);
+            track.removeEventListener('unmute', onUnmute);
+        });
+        mediaTrackHandlersRef.current = [];
+        streamInactiveHandlerRef.current = null;
         scriptProcessorRef.current?.disconnect();
+        if (audioContextRef.current) {
+            audioContextRef.current.onstatechange = null;
+        }
         if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
             audioContextRef.current.close();
         }
@@ -322,6 +387,23 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             logEvent('info', 'Initializing STT provider', { provider: sttConfig.provider, language: sttConfig.language });
             const provider = createStreamingSttProvider(sttConfig);
             streamingProviderRef.current = provider;
+            if (navigator.permissions?.query) {
+                try {
+                    const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+                    if (status.state === 'denied') {
+                        setError('Microphone access is blocked in system settings. Enable it to start recording.');
+                        pushToast({
+                            title: 'Microphone blocked',
+                            description: 'Enable microphone access in system settings to start recording.',
+                            variant: 'error',
+                        });
+                        return;
+                    }
+                } catch (permError) {
+                    console.warn('Unable to query microphone permission state:', permError);
+                }
+            }
+
             mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     echoCancellation: true,
@@ -330,6 +412,18 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                     channelCount: 1,
                 },
             });
+            const interruptionMessage = 'Audio input was interrupted. Recording paused until the microphone is available again.';
+            const handleTrackEnded = () => handleAudioInterruption('Microphone disconnected. Reconnect it to resume.');
+            const handleTrackMuted = () => handleAudioInterruption(interruptionMessage);
+            const handleTrackUnmuted = () => resumeFromInterruption();
+            mediaTrackHandlersRef.current = mediaStreamRef.current.getTracks().map(track => {
+                track.addEventListener('ended', handleTrackEnded);
+                track.addEventListener('mute', handleTrackMuted);
+                track.addEventListener('unmute', handleTrackUnmuted);
+                return { track, onEnded: handleTrackEnded, onMute: handleTrackMuted, onUnmute: handleTrackUnmuted };
+            });
+            streamInactiveHandlerRef.current = () => handleAudioInterruption(interruptionMessage);
+            mediaStreamRef.current.oninactive = streamInactiveHandlerRef.current;
 
             const mimeTypeCandidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
             const mimeType = mimeTypeCandidates.find(type => MediaRecorder.isTypeSupported(type));
@@ -443,6 +537,15 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             if (audioContextRef.current.sampleRate !== TARGET_SAMPLE_RATE) {
                 logEvent('warn', 'AudioContext sample rate mismatch', { actual: audioContextRef.current.sampleRate, expected: TARGET_SAMPLE_RATE });
             }
+            audioContextRef.current.onstatechange = () => {
+                if (!audioContextRef.current) return;
+                if (audioContextRef.current.state === 'suspended') {
+                    handleAudioInterruption(interruptionMessage);
+                }
+                if (audioContextRef.current.state === 'running') {
+                    resumeFromInterruption();
+                }
+            };
             const source = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
             scriptProcessorRef.current = audioContextRef.current.createScriptProcessor(4096, 1, 1);
             
@@ -541,26 +644,6 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             window.removeEventListener('pagehide', handlePageHide);
         };
     }, [isRecording, pauseRecording, resumeRecording, stopRecording]);
-
-    const pauseRecording = () => {
-        setIsPaused(true);
-        streamingSessionRef.current?.pause();
-        setConnectionStatus('paused');
-        if (mediaRecorderRef.current?.state === 'recording') {
-            mediaRecorderRef.current.pause();
-        }
-    };
-
-    const resumeRecording = () => {
-        setIsPaused(false);
-        streamingSessionRef.current?.resume();
-        if (connectionStatusRef.current !== 'live') {
-            scheduleReconnect();
-        }
-        if (mediaRecorderRef.current?.state === 'paused') {
-            mediaRecorderRef.current.resume();
-        }
-    };
 
     const transcribeAfterRecording = async () => {
         const assetId = activeAssetIdRef.current;
