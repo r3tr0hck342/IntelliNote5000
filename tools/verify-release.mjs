@@ -7,11 +7,27 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 
 const errors = [];
+const warnings = [];
+const releaseBuild = process.env.RELEASE_BUILD === '1';
 
 const requireFile = (relativePath) => {
   const fullPath = path.join(repoRoot, relativePath);
   if (!fs.existsSync(fullPath)) {
     errors.push(`Missing required file: ${relativePath}`);
+    return null;
+  }
+  return fullPath;
+};
+
+const requireFileWithGuidance = (relativePath, guidance) => {
+  const fullPath = path.join(repoRoot, relativePath);
+  if (!fs.existsSync(fullPath)) {
+    const message = `Missing required file: ${relativePath}. ${guidance}`;
+    if (releaseBuild) {
+      errors.push(message);
+    } else {
+      warnings.push(message);
+    }
     return null;
   }
   return fullPath;
@@ -49,6 +65,20 @@ if (tauriConfPath) {
         errors.push('Tauri entitlements missing com.apple.security.device.audio-input.');
       }
     }
+    if (!macosConfig.signingIdentity) {
+      errors.push('Missing tauri.bundle.macOS.signingIdentity.');
+    }
+    if (!macosConfig.providerShortName) {
+      errors.push('Missing tauri.bundle.macOS.providerShortName.');
+    }
+    if (releaseBuild) {
+      if (!process.env.TAURI_MACOS_SIGNING_IDENTITY) {
+        errors.push('Missing TAURI_MACOS_SIGNING_IDENTITY for signed macOS release build.');
+      }
+      if (!process.env.TAURI_MACOS_PROVIDER_SHORT_NAME) {
+        errors.push('Missing TAURI_MACOS_PROVIDER_SHORT_NAME for signed macOS release build.');
+      }
+    }
   }
 }
 
@@ -76,10 +106,10 @@ if (androidManifest) {
 }
 
 const iosProjectPath = 'ios/App/App.xcodeproj/project.pbxproj';
-requireFile(iosProjectPath);
-requireFile('ios/App/Podfile');
-requireFile('android/app/build.gradle');
-requireFile('android/build.gradle');
+requireFileWithGuidance(iosProjectPath, 'Run: npm run native:ios:gen');
+requireFileWithGuidance('ios/App/Podfile', 'Run: npm run native:ios:gen');
+requireFileWithGuidance('android/app/build.gradle', 'Run: npm run native:android:gen');
+requireFileWithGuidance('android/build.gradle', 'Run: npm run native:android:gen');
 
 const envExample = readFile('.env.example');
 if (envExample) {
@@ -90,6 +120,11 @@ if (envExample) {
   requireIncludes(envExample, 'VITE_STT_API_KEY', '.env.example STT API key');
   requireIncludes(envExample, 'VITE_STT_LANGUAGE', '.env.example STT language');
   requireIncludes(envExample, 'VITE_STT_MODEL', '.env.example STT model');
+  requireIncludes(envExample, 'TAURI_MACOS_SIGNING_IDENTITY', '.env.example macOS signing identity');
+  requireIncludes(envExample, 'TAURI_MACOS_PROVIDER_SHORT_NAME', '.env.example macOS provider short name');
+  requireIncludes(envExample, 'APPLE_ID', '.env.example notarization Apple ID');
+  requireIncludes(envExample, 'APPLE_PASSWORD', '.env.example notarization app-specific password');
+  requireIncludes(envExample, 'APPLE_TEAM_ID', '.env.example notarization team ID');
 }
 
 const envConfig = readFile('utils/env.ts');
@@ -120,6 +155,11 @@ if (packageJsonPath) {
   if (!dependencies['capacitor-secure-storage-plugin']) {
     errors.push('Missing capacitor-secure-storage-plugin dependency.');
   }
+}
+
+if (warnings.length > 0) {
+  console.warn('Release verification warnings:');
+  warnings.forEach((warning) => console.warn(`- ${warning}`));
 }
 
 if (errors.length > 0) {

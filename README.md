@@ -64,13 +64,47 @@ This verifies native configuration files, permission strings, and required Capac
 ### CI Release Gate
 Pull requests and pushes to `main` run linting, type checks, unit tests, a production build, and the release verification script via GitHub Actions. This blocks merges unless the project is package-ready.
 
+## Packaging / Distribution
+
+### macOS (Tauri)
+1. Install deps: `npm install`
+2. Build web assets: `npm run build`
+3. Verify release prerequisites: `npm run verify:release`
+4. **Unsigned/local build**: `npm run tauri:build:unsigned`
+5. **Signed + notarized build**: `npm run tauri:build:signed`
+
+Required environment variables for signed builds:
+- `TAURI_MACOS_SIGNING_IDENTITY` (e.g., `Developer ID Application: Your Company (TEAMID)`)
+- `TAURI_MACOS_PROVIDER_SHORT_NAME` (Apple Team ID)
+
+Optional notarization variables (notarytool):
+- `TAURI_NOTARIZE=1`
+- `APPLE_ID`
+- `APPLE_PASSWORD` (app-specific password)
+- `APPLE_TEAM_ID`
+
+Artifacts are written to `src-tauri/target/release/bundle`.
+
+### iOS (Capacitor)
+1. Generate the native project: `npm run native:ios:gen`
+2. Open in Xcode: `npm run native:ios:open`
+3. Configure signing (team, bundle ID, provisioning) and archive:
+   - `npm run ios:archive` (prints Xcode + CLI guidance)
+
+### Android (Capacitor)
+1. Generate the native project: `npm run native:android:gen`
+2. Open in Android Studio: `npm run native:android:open`
+3. Configure signing in `android/` and build:
+   - `npm run android:bundle:release` (AAB)
+   - `npm run android:assemble:release` (APK)
+
 ## Production Checklist
 - ✅ Configure AI + STT providers in Settings and verify credentials.
 - ✅ Disable localStorage fallback unless you explicitly need it for web-only builds.
 - ✅ Verify transcription permissions on each platform.
 - ✅ Run `npm run verify:platforms` to confirm native config strings.
 - ✅ Run `npm run lint`, `npm run typecheck`, and `npm run test:unit`.
-- ✅ Run `npm run build` and `npm run build-desktop` / `npm run sync-mobile` as needed.
+- ✅ Run `npm run build` and `npm run tauri:build:unsigned` / `npm run native:ios:gen` / `npm run native:android:gen` as needed.
 - ✅ Review **Settings → Diagnostics & Storage** for recent errors before release.
 
 ## Troubleshooting
@@ -80,7 +114,8 @@ Pull requests and pushes to `main` run linting, type checks, unit tests, a produ
 - **Keys not persisting on web**: Enable the localStorage fallback toggle in Settings.
 - **Microphone blocked**: Check browser permissions or update native Info.plist/AndroidManifest entries.
 - **Capacitor build fails with missing permissions**: Run `npm run verify:platforms` and `npx cap sync` to regenerate native projects.
-- **Tauri signing/notarization errors**: Confirm `TAURI_SIGNING_IDENTITY`, `APPLE_ID`, and app-specific password are set and that hardened runtime entitlements include microphone access.
+- **Missing iOS/Android native projects**: Run `npm run native:ios:gen` or `npm run native:android:gen` before packaging.
+- **Tauri signing/notarization errors**: Confirm `TAURI_MACOS_SIGNING_IDENTITY`, `TAURI_MACOS_PROVIDER_SHORT_NAME`, `APPLE_ID`, and app-specific password are set and that hardened runtime entitlements include microphone access.
 - **Android build fails with foreground service errors**: Ensure `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_MICROPHONE` permissions are present after `npx cap sync`.
 
 ## Platform Permission Notes
@@ -96,8 +131,8 @@ Pull requests and pushes to `main` run linting, type checks, unit tests, a produ
 4. `npm run test:unit`
 5. `npm run build`
 6. `npm run verify:platforms`
-7. Desktop: `npm run build-desktop`
-8. Mobile: `npm run sync-mobile` → open Xcode/Android Studio for signing and release builds.
+7. Desktop: `npm run tauri:build:unsigned` or `npm run tauri:build:signed`
+8. Mobile: `npm run native:ios:gen` / `npm run native:android:gen` → open Xcode/Android Studio for signing and release builds.
 
 ## Platform Build Steps
 
@@ -110,29 +145,29 @@ Pull requests and pushes to `main` run linting, type checks, unit tests, a produ
 1. `npm install`
 2. `npm run build`
 3. `npm run verify:platforms`
-4. `npm run build-desktop`
+4. `npm run tauri:build:unsigned` or `npm run tauri:build:signed`
 5. Use the output in `src-tauri/target/release/bundle/macos`.
 
 ### iOS (Capacitor)
 1. `npm install`
 2. `npm run build`
 3. `npm run verify:platforms`
-4. `npm run sync-mobile`
-5. `npx cap open ios`
+4. `npm run native:ios:gen`
+5. `npm run native:ios:open`
 6. Configure signing, update `Info.plist` if needed, and archive in Xcode.
 
 ### Android (Capacitor)
 1. `npm install`
 2. `npm run build`
 3. `npm run verify:platforms`
-4. `npm run sync-mobile`
-5. `npx cap open android`
+4. `npm run native:android:gen`
+5. `npm run native:android:open`
 6. Configure signing and create a release build in Android Studio.
 
 ## Signing + Notarization (Placeholders)
 - **macOS (Tauri)**:
-  - [ ] Set `TAURI_SIGNING_IDENTITY` and ensure hardened runtime + microphone entitlements are enabled.
-  - [ ] Set `APPLE_ID`, `APPLE_PASSWORD`, and optionally `TAURI_NOTARIZE=1` before `npm run build-desktop`.
+  - [ ] Set `TAURI_MACOS_SIGNING_IDENTITY` and `TAURI_MACOS_PROVIDER_SHORT_NAME` and ensure hardened runtime + microphone entitlements are enabled.
+  - [ ] Set `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`, and optionally `TAURI_NOTARIZE=1` before `npm run tauri:build:signed`.
   - [ ] Verify notarization status in the Apple developer portal.
 - **iOS**:
   - [ ] Configure the Xcode project signing team, bundle ID, and provisioning profile.
@@ -148,8 +183,10 @@ Pull requests and pushes to `main` run linting, type checks, unit tests, a produ
 
 ### Build commands
 - `npm run build` – production web bundle
-- `npm run start-desktop` / `npm run build-desktop` – Tauri dev/build for macOS
-- `npm run sync-mobile` – rebuild web assets + sync to Capacitor native shells
+- `npm run start-desktop` – Tauri dev for macOS
+- `npm run tauri:build:unsigned` / `npm run tauri:build:signed` – Tauri release builds
+- `npm run native:ios:gen` / `npm run native:ios:open` – Capacitor iOS generation + open
+- `npm run native:android:gen` / `npm run native:android:open` – Capacitor Android generation + open
 - `npm run start-mobile` – sync + open iOS workspace (use Xcode for device/archive builds)
 
 ### Mobile + Desktop Permissions
