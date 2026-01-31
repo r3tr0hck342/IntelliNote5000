@@ -47,6 +47,17 @@ INTELLINOTE5000
 - **Export Diagnostics Bundle**: Use **Settings → Diagnostics & Storage → Export Diagnostics Bundle** to download a JSON snapshot containing app/build info, platform info, redacted logs, last STT probe stats, and provider configuration presence flags. Share this file with the team when reporting issues.
 - **Reset App State**: Use **Settings → Diagnostics & Storage → Reset App State** to clear local sessions and cached settings. You will be prompted to optionally clear secure storage credentials (API keys).
 
+### Build Label
+- **Format**:
+  - Production/package builds: `IntelliNote5000 <package.json version> (<gitShortSha|timestamp>)`
+  - Dev builds: `IntelliNote5000 dev (<gitShortSha|timestamp>)`
+- **How it’s generated**: `tools/build-info.mjs` reads `package.json`, attempts `git rev-parse --short HEAD`, and falls back to a UTC timestamp if git metadata is unavailable.
+- **Where it appears**:
+  - **Settings → About** shows the full build label and platform.
+  - **Export Diagnostics Bundle** includes `buildLabel`, `version`, `buildCommit`, and `buildTime`.
+  - `npm run build:info` prints the label in the terminal.
+- **When filing bugs**: Ask testers to open **Settings → About** and copy the build label (plus platform). This helps match issues to the exact build.
+
 Add new providers by creating an adapter in `services/providers/` and surfacing it in Settings.
 
 ### Secure API Key Storage

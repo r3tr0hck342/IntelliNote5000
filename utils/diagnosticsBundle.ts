@@ -4,14 +4,15 @@ import { redactSensitiveData, redactSensitiveText } from './redaction';
 import { isTauri } from './native';
 import type { SttProbeSummary } from './sttProbe';
 import { getLastSttProbeSummary } from './sttProbe';
-import { getBuildLabel } from './buildLabel';
+import { getBuildInfo } from './buildLabel';
 
 export interface AppInfo {
   name: string;
   version: string;
   buildMode: string;
-  buildTime: string | null;
+  buildTime: string;
   buildLabel: string;
+  buildCommit: string | null;
 }
 
 export interface PlatformInfo {
@@ -52,13 +53,14 @@ const getBuildMode = (): string => {
 };
 
 export const getAppInfo = (): AppInfo => {
-  const buildTime = typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_BUILD_TIME : undefined;
+  const buildInfo = getBuildInfo();
   return {
     name: packageJson.name,
-    version: packageJson.version,
+    version: buildInfo.version,
     buildMode: getBuildMode(),
-    buildTime: buildTime ?? null,
-    buildLabel: getBuildLabel(),
+    buildTime: buildInfo.buildTime,
+    buildLabel: buildInfo.label,
+    buildCommit: buildInfo.commit,
   };
 };
 
