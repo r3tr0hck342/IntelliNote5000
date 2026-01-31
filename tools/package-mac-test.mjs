@@ -131,8 +131,8 @@ const createDmg = (appPath, dmgPath) => {
   const stagingDir = path.join(outputDir, 'dmg-staging');
   ensureEmptyDir(stagingDir);
 
-  const appName = path.basename(appPath);
-  const stagedAppPath = path.join(stagingDir, appName);
+  const stagedAppName = 'IntelliNote5000.app';
+  const stagedAppPath = path.join(stagingDir, stagedAppName);
   fs.cpSync(appPath, stagedAppPath, { recursive: true });
 
   try {
@@ -144,19 +144,21 @@ const createDmg = (appPath, dmgPath) => {
     // Continue without Applications symlink if not permitted.
   }
 
-  runCommand('hdiutil', [
-    'create',
-    '-volname',
-    'IntelliNote5000',
-    '-srcfolder',
-    stagingDir,
-    '-ov',
-    '-format',
-    'UDZO',
-    dmgPath,
-  ]);
-
-  fs.rmSync(stagingDir, { recursive: true, force: true });
+  try {
+    runCommand('hdiutil', [
+      'create',
+      '-volname',
+      'IntelliNote5000',
+      '-srcfolder',
+      stagingDir,
+      '-ov',
+      '-format',
+      'UDZO',
+      dmgPath,
+    ]);
+  } finally {
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+  }
 
   return { created: true };
 };
