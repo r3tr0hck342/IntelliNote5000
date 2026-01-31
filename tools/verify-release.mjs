@@ -66,10 +66,20 @@ if (tauriConfPath) {
       }
     }
     if (!macosConfig.signingIdentity) {
-      errors.push('Missing tauri.bundle.macOS.signingIdentity.');
+      const message = 'Missing tauri.bundle.macOS.signingIdentity.';
+      if (releaseBuild) {
+        errors.push(message);
+      } else {
+        warnings.push(message);
+      }
     }
     if (!macosConfig.providerShortName) {
-      errors.push('Missing tauri.bundle.macOS.providerShortName.');
+      const message = 'Missing tauri.bundle.macOS.providerShortName.';
+      if (releaseBuild) {
+        errors.push(message);
+      } else {
+        warnings.push(message);
+      }
     }
     if (releaseBuild) {
       if (!process.env.TAURI_MACOS_SIGNING_IDENTITY) {
