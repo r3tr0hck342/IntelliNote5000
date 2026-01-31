@@ -122,10 +122,10 @@ const createZip = (appPath, zipPath) => {
 
 const createDmg = (appPath, dmgPath) => {
   if (os.platform() !== 'darwin') {
-    throw new Error('DMG packaging requires macOS (hdiutil).');
+    return { created: false, reason: 'DMG packaging requires macOS (hdiutil).' };
   }
   if (!commandExists('hdiutil')) {
-    throw new Error('hdiutil is unavailable; cannot create DMG.');
+    return { created: false, reason: 'hdiutil is unavailable; cannot create DMG.' };
   }
 
   const stagingDir = path.join(outputDir, 'dmg-staging');
@@ -200,7 +200,10 @@ const main = () => {
     .join('\n') + '\n';
   fs.writeFileSync(shaPath, shaContent, 'utf-8');
 
-  const artifacts = [zipPath, dmgPath, shaPath, readmePath, buildInfoPath];
+  const artifacts = [zipPath, shaPath, readmePath, buildInfoPath];
+  if (dmgResult.created) {
+    artifacts.push(dmgPath);
+  }
   const missingArtifacts = artifacts.filter((artifact) => !fs.existsSync(artifact));
   if (missingArtifacts.length > 0) {
     throw new Error(`Missing artifacts:\n${missingArtifacts.map((artifact) => `- ${artifact}`).join('\n')}`);
@@ -213,7 +216,11 @@ const main = () => {
   console.log(`Git SHA: ${buildInfo.commit}`);
   console.log('Artifacts:');
   console.log(`- ${zipPath}`);
-  console.log(`- ${dmgPath}`);
+  if (dmgResult.created) {
+    console.log(`- ${dmgPath}`);
+  } else if (dmgResult.reason) {
+    console.log(`- ${dmgPath} (skipped: ${dmgResult.reason})`);
+  }
   console.log(`- ${shaPath}`);
   console.log(`- ${readmePath}`);
   console.log(`- ${buildInfoPath}`);
