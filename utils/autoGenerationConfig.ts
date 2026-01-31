@@ -33,4 +33,9 @@ export const persistAutoGenerationConfig = (config: AutoGenerationConfig) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
 };
 
+export const clearAutoGenerationConfig = () => {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  localStorage.removeItem(STORAGE_KEY);
+};
+
 export const getDefaultAutoGenerationConfig = () => DEFAULT_CONFIG;

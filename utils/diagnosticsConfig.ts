@@ -9,3 +9,8 @@ export const persistDiagnosticsPreference = (enabled: boolean) => {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
   localStorage.setItem(STORAGE_KEY, enabled ? 'true' : 'false');
 };
+
+export const clearDiagnosticsPreference = () => {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  localStorage.removeItem(STORAGE_KEY);
+};
