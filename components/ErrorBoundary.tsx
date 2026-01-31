@@ -1,5 +1,9 @@
 import React from 'react';
 import { logEvent } from '../utils/logger';
+import { exportDiagnosticsBundle } from '../utils/diagnosticsBundle';
+import { getCachedApiConfig } from '../utils/apiConfig';
+import { getCachedSttConfig } from '../utils/transcriptionConfig';
+import { resetAppState } from '../utils/appReset';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -32,6 +36,33 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren, ErrorBounda
             >
               Reload App
             </button>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() =>
+                  exportDiagnosticsBundle({
+                    providerConfigPresence: {
+                      aiConfigured: Boolean(getCachedApiConfig()?.apiKey),
+                      sttConfigured: Boolean(getCachedSttConfig()?.apiKey),
+                    },
+                  })
+                }
+                className="px-4 py-2 rounded-md bg-gray-800 text-white hover:bg-gray-900"
+              >
+                Export Diagnostics Bundle
+              </button>
+              <button
+                onClick={async () => {
+                  const confirmed = window.confirm('Reset app state? This clears local sessions and cached settings.');
+                  if (!confirmed) return;
+                  const includeSecureStorage = window.confirm('Also clear secure storage credentials? This removes saved API keys.');
+                  await resetAppState({ includeSecureStorage });
+                  window.location.reload();
+                }}
+                className="px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700"
+              >
+                Reset App State
+              </button>
+            </div>
           </div>
         </div>
       );

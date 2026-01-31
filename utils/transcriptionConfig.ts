@@ -46,6 +46,11 @@ export const clearStoredSttConfig = async () => {
   await transcriptionStorage.clear();
 };
 
+export const clearCachedSttConfig = () => {
+  inMemoryConfig = null;
+  setRuntimeCache(null);
+};
+
 const getViteEnv = (): Record<string, any> | undefined => {
   try {
     return typeof import.meta !== 'undefined' ? (import.meta as any).env : undefined;

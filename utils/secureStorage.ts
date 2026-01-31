@@ -35,6 +35,11 @@ const fallbackStore = {
   }
 };
 
+export const clearLocalApiConfig = () => {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  localStorage.removeItem(STORAGE_KEY);
+};
+
 const withCapacitorPlugin = async () => {
   if (!isCapacitorNative()) return null;
   try {

@@ -28,6 +28,14 @@ export interface SttProbeSummary {
   duration_ms: number;
 }
 
+let lastProbeSummary: SttProbeSummary | null = null;
+
+export const setLastSttProbeSummary = (summary: SttProbeSummary | null) => {
+  lastProbeSummary = summary;
+};
+
+export const getLastSttProbeSummary = (): SttProbeSummary | null => lastProbeSummary;
+
 export const createSttProbeStats = (startedAtMs = Date.now()): SttProbeStats => ({
   startedAtMs,
   interimEventsCount: 0,

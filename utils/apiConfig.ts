@@ -45,3 +45,8 @@ export const clearStoredApiConfig = async () => {
     setRuntimeCache(null);
     await secureStorage.clear();
 };
+
+export const clearCachedApiConfig = () => {
+    inMemoryConfig = null;
+    setRuntimeCache(null);
+};

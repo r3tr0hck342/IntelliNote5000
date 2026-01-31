@@ -19,10 +19,12 @@ import { STT_PROVIDER_METADATA } from './services/stt';
 import { buildTranscriptText, createId, normalizeImportedTranscript } from './utils/transcript';
 import { loadPersistedSessions, persistSessions } from './utils/sessionStorage';
 import { loadDiagnosticsPreference, persistDiagnosticsPreference } from './utils/diagnosticsConfig';
-import { loadAutoGenerationConfig, persistAutoGenerationConfig } from './utils/autoGenerationConfig';
+import { getDefaultAutoGenerationConfig, loadAutoGenerationConfig, persistAutoGenerationConfig } from './utils/autoGenerationConfig';
 import { getCredentialFallbackPreference, setCredentialFallbackPreference } from './utils/credentialPolicy';
 import { clearAllCredentials } from './utils/credentialCleanup';
 import { logEvent } from './utils/logger';
+import { exportDiagnosticsBundle } from './utils/diagnosticsBundle';
+import { resetAppState } from './utils/appReset';
 
 const PROVIDERS = Object.values(PROVIDER_METADATA);
 const STT_PROVIDERS = Object.values(STT_PROVIDER_METADATA);
@@ -149,6 +151,37 @@ const App: React.FC = () => {
   const toggleTheme = () => {
     setTheme(prevTheme => (prevTheme === 'dark' ? 'light' : 'dark'));
   };
+
+  const handleExportDiagnostics = useCallback(() => {
+    exportDiagnosticsBundle({
+      providerConfigPresence: {
+        aiConfigured: Boolean(apiConfig?.apiKey),
+        sttConfigured: Boolean(sttConfig?.apiKey),
+      },
+    });
+  }, [apiConfig, sttConfig]);
+
+  const handleResetAppState = useCallback(
+    async ({ includeSecureStorage }: { includeSecureStorage: boolean }) => {
+      await resetAppState({ includeSecureStorage });
+      setSessions([]);
+      setActiveSessionId(null);
+      setActiveAssetId(null);
+      setCurrentView(AppView.Welcome);
+      setDiagnosticsEnabled(false);
+      setAutoGenerationConfig(getDefaultAutoGenerationConfig());
+      setCredentialFallbackEnabled(false);
+      if (includeSecureStorage) {
+        setApiConfig(null);
+        setSttConfig(null);
+      } else {
+        const [api, stt] = await Promise.all([loadApiConfig(), loadSttConfig()]);
+        setApiConfig(api);
+        setSttConfig(stt);
+      }
+    },
+    []
+  );
 
   const handleNewLiveLecture = () => {
     setCurrentView(AppView.Live);
@@ -756,6 +789,8 @@ const App: React.FC = () => {
         onToggleCredentialFallback={handleToggleCredentialFallback}
         autoGenerationConfig={autoGenerationConfig}
         onSaveAutoGenerationConfig={handleSaveAutoGenerationConfig}
+        onExportDiagnostics={handleExportDiagnostics}
+        onResetAppState={handleResetAppState}
       />
       <ToastViewport />
       <DiagnosticsPanel

@@ -44,6 +44,8 @@ INTELLINOTE5000
 - Open the Diagnostics panel from **Settings → Diagnostics**.
 - **Run 10s STT Probe**: Requests microphone access, streams audio to the configured Deepgram provider for 10 seconds, and reports timing stats (time to first interim/final, cadence, reconnects, queue depth). No transcripts are saved; this is strictly a connectivity and latency check.
 - **Dry-run Import Pipeline**: Runs the transcript import normalization + segmentation and triggers the AI pipeline entrypoints without calling external APIs. Use this when API keys are not configured to confirm that notes, study guide, test questions, flashcards, tags, and chat wiring are all connected.
+- **Export Diagnostics Bundle**: Use **Settings → Diagnostics & Storage → Export Diagnostics Bundle** to download a JSON snapshot containing app/build info, platform info, redacted logs, last STT probe stats, and provider configuration presence flags. Share this file with the team when reporting issues.
+- **Reset App State**: Use **Settings → Diagnostics & Storage → Reset App State** to clear local sessions and cached settings. You will be prompted to optionally clear secure storage credentials (API keys).
 
 Add new providers by creating an adapter in `services/providers/` and surfacing it in Settings.
 

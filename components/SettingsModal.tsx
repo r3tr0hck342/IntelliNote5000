@@ -28,6 +28,8 @@ interface SettingsModalProps {
   onToggleCredentialFallback: (enabled: boolean) => void;
   autoGenerationConfig: AutoGenerationConfig;
   onSaveAutoGenerationConfig: (config: AutoGenerationConfig) => void;
+  onExportDiagnostics: () => void;
+  onResetAppState: (options: { includeSecureStorage: boolean }) => Promise<void>;
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -51,6 +53,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleCredentialFallback,
   autoGenerationConfig,
   onSaveAutoGenerationConfig,
+  onExportDiagnostics,
+  onResetAppState,
 }) => {
   const defaultProvider = useMemo<ProviderId>(() => availableProviders[0]?.id ?? 'gemini', [availableProviders]);
   const defaultSttProvider = useMemo<SttProviderId>(() => availableSttProviders[0]?.id ?? 'deepgram', [availableSttProviders]);
@@ -362,6 +366,31 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
                   >
                     Save Diagnostics Settings
+                  </button>
+                </div>
+              </div>
+              <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg space-y-3">
+                <div className="font-medium text-gray-800 dark:text-gray-200">Diagnostics actions</div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Export a redacted diagnostics bundle or reset local app state for testing.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={onExportDiagnostics}
+                    className="px-4 py-2 text-sm font-medium text-white bg-gray-800 rounded-md hover:bg-gray-900"
+                  >
+                    Export Diagnostics Bundle
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const confirmed = window.confirm('Reset app state? This clears local sessions and cached settings.');
+                      if (!confirmed) return;
+                      const includeSecureStorage = window.confirm('Also clear secure storage credentials? This removes saved API keys.');
+                      await onResetAppState({ includeSecureStorage });
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-900/40 rounded-md hover:bg-red-100 dark:hover:bg-red-900"
+                  >
+                    Reset App State
                   </button>
                 </div>
               </div>

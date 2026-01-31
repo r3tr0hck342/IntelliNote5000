@@ -15,6 +15,8 @@ import {
 } from '../utils/sttProbe.ts';
 import { runDryRunPipeline } from '../services/aiService.ts';
 import type { AiProvider, ProviderMetadata } from '../services/providers/types.ts';
+import { redactSensitiveData, redactSensitiveText } from '../utils/redaction.ts';
+import { buildDiagnosticsBundle } from '../utils/diagnosticsBundle.ts';
 
 const testTranscriptReconciliation = () => {
   const baseSegment = {
@@ -211,11 +213,49 @@ const testDryRunPipeline = async () => {
   assert.equal(networkCalls, 0);
 };
 
+const testRedaction = () => {
+  const redactedText = redactSensitiveText('Authorization: Bearer super-secret-token');
+  assert.equal(redactedText, 'Authorization: [REDACTED]');
+
+  const redactedData = redactSensitiveData({
+    apiKey: 'secret-key',
+    nested: { token: 'token-value', note: 'Bearer abc123' },
+  }) as Record<string, unknown>;
+  assert.equal(redactedData.apiKey, '[REDACTED]');
+  assert.deepEqual(redactedData.nested, { token: '[REDACTED]', note: '[REDACTED]' });
+};
+
+const testDiagnosticsBundleShape = () => {
+  const bundle = buildDiagnosticsBundle({
+    appInfo: { name: 'IntelliNote', version: '0.0.0', buildMode: 'test', buildTime: null },
+    platform: { target: 'web' },
+    providerConfigPresence: { aiConfigured: true, sttConfigured: false },
+    logs: [
+      {
+        id: 'log-1',
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        message: 'api_key=secret',
+        data: { apiKey: 'secret' },
+      },
+    ],
+    sttProbeSummary: null,
+  });
+
+  assert.equal(bundle.app.version, '0.0.0');
+  assert.equal(bundle.platform.target, 'web');
+  assert.equal(bundle.providerConfigPresence.aiConfigured, true);
+  assert.equal(bundle.logs[0].message, '[REDACTED]');
+  assert.equal(bundle.logs[0].data?.apiKey, '[REDACTED]');
+};
+
 const run = async () => {
   testTranscriptReconciliation();
   testSessionMigration();
   testProviderErrorMapping();
   testSttProbeStatsAggregation();
+  testRedaction();
+  testDiagnosticsBundleShape();
   await testDryRunPipeline();
   console.log('unit.test.ts: all tests passed');
 };

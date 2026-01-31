@@ -12,6 +12,7 @@ import {
   recordSttProbeInterim,
   recordSttProbeQueueDepth,
   recordSttProbeReconnect,
+  setLastSttProbeSummary,
   SttProbeSummary,
   SttProbeStats,
 } from '../../utils/sttProbe';
@@ -84,7 +85,9 @@ export const runSttProbe = async (
     }
     mediaStream = null;
     await session.stop();
-    return finalizeSttProbeStats(stats, Date.now());
+    const summary = finalizeSttProbeStats(stats, Date.now());
+    setLastSttProbeSummary(summary);
+    return summary;
   };
 
   const session = provider.createSession(streamConfig, {
