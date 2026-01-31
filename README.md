@@ -85,6 +85,19 @@ Optional notarization variables (notarytool):
 
 Artifacts are written to `src-tauri/target/release/bundle`.
 
+### macOS Test Distribution (Unsigned)
+Run a single command to build and package unsigned tester artifacts:
+
+1. `npm run package:mac:test`
+
+Artifacts are written to `dist/testers`:
+- `IntelliNote5000-mac-unsigned.zip`
+- `IntelliNote5000-mac-unsigned.dmg` (if `hdiutil` is available)
+- `IntelliNote5000-mac-unsigned.sha256`
+- `README-TESTERS.txt`
+
+These packages are unsigned and intended for limited testing only. Testers must use Gatekeeper’s “Open Anyway” flow to launch the app.
+
 ### iOS (Capacitor)
 1. Generate the native project: `npm run native:ios:gen`
 2. Open in Xcode: `npm run native:ios:open`

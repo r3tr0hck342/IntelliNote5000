@@ -23,17 +23,35 @@ const requireString = (value: unknown, label: string) => {
   }
 };
 
+const requireFileExists = (relativePath: string, label: string) => {
+  const fullPath = path.join(repoRoot, relativePath);
+  if (!fs.existsSync(fullPath)) {
+    errors.push(`Missing ${label}: ${relativePath}`);
+  }
+};
+
 const tauriConfPath = requireFile('src-tauri/tauri.conf.json');
 if (tauriConfPath) {
   const raw = fs.readFileSync(tauriConfPath, 'utf-8');
   const tauriConf = JSON.parse(raw);
   const macOSBundle = tauriConf?.tauri?.bundle?.macOS;
+  const bundleIcons = tauriConf?.tauri?.bundle?.icon;
   const entitlementsPath = macOSBundle?.entitlements;
   requireString(entitlementsPath, 'macOS entitlements path in tauri.conf.json');
   const infoPlist = macOSBundle?.infoPlist;
   requireString(infoPlist?.NSMicrophoneUsageDescription, 'macOS NSMicrophoneUsageDescription in tauri.conf.json');
   if (macOSBundle?.hardenedRuntime !== true) {
     errors.push('macOS hardened runtime must be enabled in tauri.conf.json.');
+  }
+
+  if (Array.isArray(bundleIcons)) {
+    bundleIcons.forEach((iconPath: string) => {
+      requireFileExists(path.join('src-tauri', iconPath), 'Tauri bundle icon');
+    });
+  } else if (typeof bundleIcons === 'string') {
+    requireFileExists(path.join('src-tauri', bundleIcons), 'Tauri bundle icon');
+  } else {
+    errors.push('Missing tauri.bundle.icon entries in tauri.conf.json.');
   }
 
   if (entitlementsPath) {
@@ -73,6 +91,9 @@ if (packageJsonPath) {
   const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
   if (!dependencies['capacitor-secure-storage-plugin']) {
     errors.push('Missing capacitor-secure-storage-plugin dependency for secure storage.');
+  }
+  if (!packageJson.scripts?.['package:mac:test']) {
+    errors.push('Missing package:mac:test script in package.json.');
   }
 }
 
