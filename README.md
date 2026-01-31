@@ -92,9 +92,10 @@ Run a single command to build and package unsigned tester artifacts:
 
 Artifacts are written to `dist/testers`:
 - `IntelliNote5000-mac-unsigned.zip`
-- `IntelliNote5000-mac-unsigned.dmg` (if `hdiutil` is available)
-- `IntelliNote5000-mac-unsigned.sha256`
-- `README-TESTERS.txt`
+- `IntelliNote5000-mac-unsigned.dmg` (plain DMG created with `hdiutil`)
+- `IntelliNote5000-mac-unsigned.sha256` (hashes for zip + dmg)
+- `README-TESTERS.txt` (includes build label)
+- `BUILD.txt` (build label, version, commit, build time)
 
 These packages are unsigned and intended for limited testing only. Testers must use Gatekeeper’s “Open Anyway” flow to launch the app.
 
