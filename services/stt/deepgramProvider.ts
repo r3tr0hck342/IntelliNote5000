@@ -128,8 +128,9 @@ const createDeepgramSession = (
       callbacks.onError(createSttError('Deepgram connection error.', 'connection_failed', true));
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       callbacks.onStateChange('closed');
+      callbacks.onSocketClose?.(event);
     };
   };
 

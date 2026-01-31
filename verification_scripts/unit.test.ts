@@ -2,6 +2,19 @@ import assert from 'node:assert/strict';
 import { upsertInterimSegment, finalizeSegment, mergeFinalSegments } from '../utils/transcript.ts';
 import { migrateLegacyLectures, migratePersistedSessions, getSessionSchemaVersion } from '../utils/sessionStorage.ts';
 import { mapProviderError } from '../services/providers/errors.ts';
+import {
+  createSttProbeStats,
+  recordSttProbeInterim,
+  recordSttProbeFinal,
+  recordSttProbeAudioSent,
+  recordSttProbeAudioDropped,
+  recordSttProbeQueueDepth,
+  recordSttProbeReconnect,
+  recordSttProbeClose,
+  finalizeSttProbeStats,
+} from '../utils/sttProbe.ts';
+import { runDryRunPipeline } from '../services/aiService.ts';
+import type { AiProvider, ProviderMetadata } from '../services/providers/types.ts';
 
 const testTranscriptReconciliation = () => {
   const baseSegment = {
@@ -111,11 +124,103 @@ const testProviderErrorMapping = () => {
   assert.equal(networkError.retryable, true);
 };
 
-const run = () => {
+const testSttProbeStatsAggregation = () => {
+  const startMs = 1000;
+  let stats = createSttProbeStats(startMs);
+  stats = recordSttProbeInterim(stats, 1200);
+  stats = recordSttProbeInterim(stats, 1500);
+  stats = recordSttProbeFinal(stats, 1800);
+  stats = recordSttProbeAudioSent(stats, 5);
+  stats = recordSttProbeAudioDropped(stats, 2);
+  stats = recordSttProbeQueueDepth(stats, 3);
+  stats = recordSttProbeQueueDepth(stats, 1);
+  stats = recordSttProbeReconnect(stats);
+  stats = recordSttProbeClose(stats, 'code 1000');
+  const summary = finalizeSttProbeStats(stats, 2000);
+
+  assert.equal(summary.time_to_first_interim_ms, 200);
+  assert.equal(summary.interim_events_count, 2);
+  assert.equal(summary.final_events_count, 1);
+  assert.equal(summary.audio_frames_sent, 5);
+  assert.equal(summary.audio_frames_dropped, 2);
+  assert.equal(summary.reconnect_count, 1);
+  assert.equal(summary.ws_open_to_close_reason, 'code 1000');
+  assert.equal(summary.avg_frame_queue_depth, 2);
+};
+
+const testDryRunPipeline = async () => {
+  let networkCalls = 0;
+  const metadata: ProviderMetadata = {
+    id: 'openai',
+    label: 'Mock Provider',
+    description: 'Mock',
+    docsUrl: 'https://example.com',
+    keyLabel: 'Mock Key',
+    supportsLiveTranscription: false,
+  };
+  const mockProvider: AiProvider = {
+    id: 'openai',
+    metadata,
+    rawConfig: { provider: 'openai', apiKey: 'mock' },
+    processTranscript: async (_t, mode, _h, options) => {
+      if (!options?.dryRun) networkCalls += 1;
+      return `dry:${mode}`;
+    },
+    generateFlashcards: async (_t, _h, options) => {
+      if (!options?.dryRun) networkCalls += 1;
+      return [{ front: 'q', back: 'a' }];
+    },
+    generateTags: async (_t, _h, options) => {
+      if (!options?.dryRun) networkCalls += 1;
+      return ['dry'];
+    },
+    generateChatStream: async function* (_history, _message, _t, _h, options) {
+      if (!options?.dryRun) networkCalls += 1;
+      yield { textDelta: 'dry-chat' };
+    },
+    editTranscript: async (_text, _mode, options) => {
+      if (!options?.dryRun) networkCalls += 1;
+      return 'dry-edit';
+    },
+  };
+
+  const result = await runDryRunPipeline(
+    {
+      sessionId: 'session-1',
+      assetId: 'asset-1',
+      transcript: [
+        {
+          id: 'segment-1',
+          assetId: 'asset-1',
+          startMs: 0,
+          endMs: 1000,
+          text: 'Hello world',
+          isFinal: true,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      handouts: [],
+    },
+    { providerOverride: mockProvider }
+  );
+
+  assert.equal(result.providerId, 'openai');
+  assert.equal(result.validation.missingFields.length, 0);
+  assert.ok(result.generators.find(item => item.id === 'notes'));
+  assert.ok(result.generators.find(item => item.id === 'flashcards'));
+  assert.equal(networkCalls, 0);
+};
+
+const run = async () => {
   testTranscriptReconciliation();
   testSessionMigration();
   testProviderErrorMapping();
+  testSttProbeStatsAggregation();
+  await testDryRunPipeline();
   console.log('unit.test.ts: all tests passed');
 };
 
-run();
+run().catch(error => {
+  console.error('unit.test.ts: test failure', error);
+  process.exitCode = 1;
+});

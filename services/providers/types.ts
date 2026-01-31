@@ -23,6 +23,7 @@ export interface ProviderRuntimeOptions {
     useSearchGrounding?: boolean;
     count?: number;
     customPrompt?: string;
+    dryRun?: boolean;
 }
 
 export interface AiProvider {
@@ -41,7 +42,8 @@ export interface AiProvider {
     ) => Promise<Flashcard[]>;
     generateTags: (
         transcript: TranscriptSegment[],
-        handouts: Handout[]
+        handouts: Handout[],
+        options?: ProviderRuntimeOptions
     ) => Promise<string[]>;
     generateChatStream: (
         history: ChatMessage[],

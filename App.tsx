@@ -6,13 +6,13 @@ import FileUploadModal from './components/FileUploadModal';
 import SettingsModal from './components/SettingsModal';
 import ToastViewport from './components/ToastViewport';
 import DiagnosticsPanel from './components/DiagnosticsPanel';
-import { AppView, Handout, TranscriptSegment, GenerationMode, StudySession, LectureAsset } from './types';
+import { AppView, Handout, TranscriptSegment, GenerationMode, StudySession, LectureAsset, Flashcard } from './types';
 import { BrainIcon, MenuIcon } from './components/icons';
-import { processTranscript, generateFlashcards, generateTags } from './services/aiService';
+import { processTranscript, generateFlashcards, generateTags, getChatResponseStream } from './services/aiService';
 import { App as CapacitorApp } from '@capacitor/app';
 import mermaid from 'mermaid';
 import { ApiConfig, loadApiConfig, persistApiConfig, clearStoredApiConfig } from './utils/apiConfig';
-import { PROVIDER_METADATA } from './services/providers';
+import { DEFAULT_PROVIDER_ID, PROVIDER_METADATA } from './services/providers';
 import { SttConfig } from './types/stt';
 import { loadSttConfig, persistSttConfig, clearStoredSttConfig } from './utils/transcriptionConfig';
 import { STT_PROVIDER_METADATA } from './services/stt';
@@ -167,21 +167,35 @@ const App: React.FC = () => {
 
   const runAiPipeline = useCallback(async (
     session: StudySession,
-    options?: { onProgress?: (progress: ImportPipelineProgress) => void; isCancelled?: () => boolean }
+    options?: {
+      onProgress?: (progress: ImportPipelineProgress) => void;
+      isCancelled?: () => boolean;
+      dryRun?: boolean;
+      onOutput?: (stage: ImportPipelineStage, output: string | string[] | Flashcard[]) => void;
+    }
   ) => {
     const transcript = session.assets.flatMap(asset => asset.segments).filter(segment => segment.isFinal);
     logEvent('info', 'Auto-generation triggered', { sessionId: session.id, segments: transcript.length });
 
     const isCancelled = options?.isCancelled ?? (() => false);
+    const isDryRun = options?.dryRun ?? false;
     const report = (stage: ImportPipelineStage, status: ImportPipelineStatus, error?: string) => {
       options?.onProgress?.({ stage, status, error });
     };
     const flashcardCount = 10;
 
     const handleNotesSuccess = (notes: string) => {
+      if (isDryRun) {
+        options?.onOutput?.('notes', notes);
+        return;
+      }
       updateSession(session.id, { organizedNotes: notes, organizedNotesStatus: 'success' });
     };
     const handleTagsSuccess = (tags: string[]) => {
+      if (isDryRun) {
+        options?.onOutput?.('tags', tags);
+        return;
+      }
       updateSession(session.id, { suggestedTags: tags, tagsStatus: 'success' });
     };
 
@@ -189,7 +203,8 @@ const App: React.FC = () => {
     report('notes', 'running');
     try {
       const notes = await processTranscript(transcript, GenerationMode.Notes, session.handouts, false, {
-        onRetrySuccess: handleNotesSuccess,
+        onRetrySuccess: isDryRun ? undefined : handleNotesSuccess,
+        dryRun: isDryRun,
       });
       if (!isCancelled()) {
         handleNotesSuccess(notes);
@@ -198,7 +213,9 @@ const App: React.FC = () => {
     } catch (e) {
       console.error("Failed to auto-generate notes:", e);
       if (!isCancelled()) {
-        updateSession(session.id, { organizedNotesStatus: 'error' });
+        if (!isDryRun) {
+          updateSession(session.id, { organizedNotesStatus: 'error' });
+        }
         report('notes', 'error', e instanceof Error ? e.message : 'Failed to generate notes');
       }
     }
@@ -206,7 +223,10 @@ const App: React.FC = () => {
     if (isCancelled()) return;
     report('tags', 'running');
     try {
-      const tags = await generateTags(transcript, session.handouts, { onRetrySuccess: handleTagsSuccess });
+      const tags = await generateTags(transcript, session.handouts, {
+        onRetrySuccess: isDryRun ? undefined : handleTagsSuccess,
+        dryRun: isDryRun,
+      });
       if (!isCancelled()) {
         handleTagsSuccess(tags);
         report('tags', 'success');
@@ -214,7 +234,9 @@ const App: React.FC = () => {
     } catch (e) {
       console.error("Failed to auto-generate tags:", e);
       if (!isCancelled()) {
-        updateSession(session.id, { tagsStatus: 'error' });
+        if (!isDryRun) {
+          updateSession(session.id, { tagsStatus: 'error' });
+        }
         report('tags', 'error', e instanceof Error ? e.message : 'Failed to generate tags');
       }
     }
@@ -222,9 +244,13 @@ const App: React.FC = () => {
     if (isCancelled()) return;
     report('study-guide', 'running');
     try {
-      const guide = await processTranscript(transcript, GenerationMode.StudyGuide, session.handouts, false);
+      const guide = await processTranscript(transcript, GenerationMode.StudyGuide, session.handouts, false, { dryRun: isDryRun });
       if (!isCancelled()) {
-        updateSession(session.id, { studyGuide: guide });
+        if (isDryRun) {
+          options?.onOutput?.('study-guide', guide);
+        } else {
+          updateSession(session.id, { studyGuide: guide });
+        }
         report('study-guide', 'success');
       }
     } catch (e) {
@@ -237,9 +263,13 @@ const App: React.FC = () => {
     if (isCancelled()) return;
     report('test-questions', 'running');
     try {
-      const questions = await processTranscript(transcript, GenerationMode.TestQuestions, session.handouts, false);
+      const questions = await processTranscript(transcript, GenerationMode.TestQuestions, session.handouts, false, { dryRun: isDryRun });
       if (!isCancelled()) {
-        updateSession(session.id, { testQuestions: questions });
+        if (isDryRun) {
+          options?.onOutput?.('test-questions', questions);
+        } else {
+          updateSession(session.id, { testQuestions: questions });
+        }
         report('test-questions', 'success');
       }
     } catch (e) {
@@ -252,9 +282,13 @@ const App: React.FC = () => {
     if (isCancelled()) return;
     report('flashcards', 'running');
     try {
-      const flashcards = await generateFlashcards(transcript, session.handouts, flashcardCount, false);
+      const flashcards = await generateFlashcards(transcript, session.handouts, flashcardCount, false, { dryRun: isDryRun });
       if (!isCancelled()) {
-        updateSession(session.id, { flashcards });
+        if (isDryRun) {
+          options?.onOutput?.('flashcards', flashcards);
+        } else {
+          updateSession(session.id, { flashcards });
+        }
         report('flashcards', 'success');
       }
     } catch (e) {
@@ -466,6 +500,89 @@ const App: React.FC = () => {
     setCurrentView(AppView.Note);
     return queueImportPipeline(sessionId, data.onProgress);
   }, [handleCreateSession, queueImportPipeline]);
+
+  const handleDryRunImportPipeline = useCallback(async () => {
+    const createdAt = new Date().toISOString();
+    const sessionId = createId('session-dry-run');
+    const assetId = createId('asset-dry-run');
+    const transcriptFixture = `Speaker 1: Welcome to IntelliNote 5000.\n\nToday we will cover note-taking strategies, spaced repetition, and how to build study guides from transcripts.\n\nKey ideas:\n- Capture main points\n- Review within 24 hours\n- Turn summaries into flashcards`;
+    const segments = normalizeImportedTranscript(transcriptFixture, assetId, createdAt);
+    const fakeSession: StudySession = {
+      id: sessionId,
+      title: 'Dry Run Session',
+      topic: 'Diagnostics',
+      createdAt,
+      updatedAt: createdAt,
+      assets: [
+        {
+          id: assetId,
+          sessionId,
+          sourceType: 'import',
+          transcriptText: '',
+          transcriptPath: undefined,
+          audioPath: undefined,
+          language: 'en-US',
+          createdAt,
+          segments,
+        },
+      ],
+      handouts: [],
+      organizedNotes: null,
+      organizedNotesStatus: 'idle',
+      studyGuide: null,
+      testQuestions: null,
+      flashcards: null,
+      tags: [],
+      suggestedTags: [],
+      tagsStatus: 'idle',
+      chatHistory: [],
+    };
+
+    const generators: { id: string; detail: string }[] = [];
+    const onOutput = (stage: string, output: string | string[] | Flashcard[]) => {
+      if (stage === 'flashcards' && Array.isArray(output)) {
+        generators.push({ id: stage, detail: `Flashcards: ${output.length}` });
+        return;
+      }
+      if (Array.isArray(output)) {
+        generators.push({ id: stage, detail: `Tags: ${output.join(', ')}` });
+        return;
+      }
+      generators.push({ id: stage, detail: output });
+    };
+
+    await runAiPipeline(fakeSession, {
+      dryRun: true,
+      onOutput,
+    });
+
+    const chatStream = await getChatResponseStream(
+      [],
+      'Dry-run chat check',
+      segments,
+      [],
+      false,
+      false,
+      { dryRun: true }
+    );
+    let chatPreview = '';
+    for await (const chunk of chatStream) {
+      chatPreview += chunk.textDelta;
+    }
+    generators.push({ id: 'chat', detail: chatPreview || 'Chat stream completed with no content.' });
+
+    return {
+      providerId: apiConfig?.provider ?? DEFAULT_PROVIDER_ID,
+      validation: {
+        missingFields: segments.length === 0 ? ['transcript'] : [],
+        sessionId,
+        assetId,
+        transcriptSegments: segments.length,
+        handoutCount: 0,
+      },
+      generators,
+    };
+  }, [apiConfig?.provider]);
   
   const handleDeleteLecture = useCallback((idToDelete: string) => {
     if (window.confirm('Are you sure you want to permanently delete this session and all its data?')) {
@@ -641,7 +758,12 @@ const App: React.FC = () => {
         onSaveAutoGenerationConfig={handleSaveAutoGenerationConfig}
       />
       <ToastViewport />
-      <DiagnosticsPanel isOpen={diagnosticsEnabled} onClose={() => handleToggleDiagnostics(false)} />
+      <DiagnosticsPanel
+        isOpen={diagnosticsEnabled}
+        onClose={() => handleToggleDiagnostics(false)}
+        sttConfig={sttConfig}
+        onRunDryRunImportPipeline={handleDryRunImportPipeline}
+      />
     </div>
   );
 };
