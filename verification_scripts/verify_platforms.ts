@@ -30,7 +30,20 @@ const requireFileExists = (relativePath: string, label: string) => {
   }
 };
 
+const requireIconFiles = (paths: string[]) => {
+  paths.forEach((iconPath) => {
+    requireFileExists(iconPath, 'Tauri bundle icon');
+  });
+};
+
 requireFileExists('src-tauri/tauri.conf.json', 'Tauri config');
+requireIconFiles([
+  'src-tauri/icons/32x32.png',
+  'src-tauri/icons/128x128.png',
+  'src-tauri/icons/128x128@2x.png',
+  'src-tauri/icons/icon.icns',
+  'src-tauri/icons/icon.ico'
+]);
 
 const tauriConfPath = requireFile('src-tauri/tauri.conf.json');
 if (tauriConfPath) {
