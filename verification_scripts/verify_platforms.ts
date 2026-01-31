@@ -30,6 +30,8 @@ const requireFileExists = (relativePath: string, label: string) => {
   }
 };
 
+requireFileExists('src-tauri/tauri.conf.json', 'Tauri config');
+
 const tauriConfPath = requireFile('src-tauri/tauri.conf.json');
 if (tauriConfPath) {
   const raw = fs.readFileSync(tauriConfPath, 'utf-8');

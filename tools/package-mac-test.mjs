@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import os from 'os';
+import { formatBuildInfoText, getBuildInfo } from './build-info.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,20 +69,6 @@ const findLatestAppBundle = (rootDir) => {
   return candidates[0].path;
 };
 
-const getPackageVersion = () => {
-  const packageJsonPath = path.join(repoRoot, 'package.json');
-  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-  return packageJson.version ?? 'unknown';
-};
-
-const getGitShortSha = () => {
-  const result = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf-8' });
-  if (result.status !== 0) {
-    return null;
-  }
-  return result.stdout.trim() || null;
-};
-
 const computeSha256 = (filePath) => {
   const hash = crypto.createHash('sha256');
   const data = fs.readFileSync(filePath);
@@ -89,8 +76,9 @@ const computeSha256 = (filePath) => {
   return hash.digest('hex');
 };
 
-const writeTesterReadme = (readmePath) => {
-  const content = `IntelliNote5000 macOS Test Build (Unsigned)\n\n` +
+const writeTesterReadme = (readmePath, buildLabel) => {
+  const content = `IntelliNote5000 macOS Test Build (Unsigned)\n` +
+    `Build label: ${buildLabel}\n\n` +
     `This build is unsigned and NOT notarized. It is intended for limited testing only.\n\n` +
     `How to open the app (Gatekeeper):\n` +
     `1) Right-click IntelliNote5000.app and choose Open.\n` +
@@ -133,8 +121,11 @@ const createZip = (appPath, zipPath) => {
 };
 
 const createDmg = (appPath, dmgPath) => {
-  if (os.platform() !== 'darwin' || !commandExists('hdiutil')) {
-    return { created: false, reason: 'hdiutil is unavailable; skipping DMG creation.' };
+  if (os.platform() !== 'darwin') {
+    throw new Error('DMG packaging requires macOS (hdiutil).');
+  }
+  if (!commandExists('hdiutil')) {
+    throw new Error('hdiutil is unavailable; cannot create DMG.');
   }
 
   const stagingDir = path.join(outputDir, 'dmg-staging');
@@ -187,8 +178,13 @@ const main = () => {
   const dmgPath = path.join(outputDir, `${testersBaseName}.dmg`);
   const shaPath = path.join(outputDir, `${testersBaseName}.sha256`);
   const readmePath = path.join(outputDir, 'README-TESTERS.txt');
+  const buildInfoPath = path.join(outputDir, 'BUILD.txt');
 
-  writeTesterReadme(readmePath);
+  const buildInfo = getBuildInfo();
+  const buildLabel = buildInfo.label;
+
+  writeTesterReadme(readmePath, buildLabel);
+  fs.writeFileSync(buildInfoPath, formatBuildInfoText(buildInfo), 'utf-8');
   createZip(appPath, zipPath);
 
   const dmgResult = createDmg(appPath, dmgPath);
@@ -204,21 +200,23 @@ const main = () => {
     .join('\n') + '\n';
   fs.writeFileSync(shaPath, shaContent, 'utf-8');
 
-  const version = getPackageVersion();
-  const gitSha = getGitShortSha();
+  const artifacts = [zipPath, dmgPath, shaPath, readmePath, buildInfoPath];
+  const missingArtifacts = artifacts.filter((artifact) => !fs.existsSync(artifact));
+  if (missingArtifacts.length > 0) {
+    throw new Error(`Missing artifacts:\n${missingArtifacts.map((artifact) => `- ${artifact}`).join('\n')}`);
+  }
 
   console.log('macOS test packaging complete.');
   console.log(`App bundle: ${appPath}`);
-  console.log(`Version: ${version}`);
-  console.log(`Git SHA: ${gitSha ?? 'unavailable'}`);
+  console.log(`Build label: ${buildLabel}`);
+  console.log(`Version: ${buildInfo.version}`);
+  console.log(`Git SHA: ${buildInfo.commit}`);
   console.log('Artifacts:');
   console.log(`- ${zipPath}`);
-  if (dmgResult.created) {
-    console.log(`- ${dmgPath}`);
-  } else {
-    console.warn(dmgResult.reason);
-  }
+  console.log(`- ${dmgPath}`);
   console.log(`- ${shaPath}`);
+  console.log(`- ${readmePath}`);
+  console.log(`- ${buildInfoPath}`);
   console.log('Hashes:');
   hashes.forEach(({ file, hash }) => {
     console.log(`${path.basename(file)}: ${hash}`);
