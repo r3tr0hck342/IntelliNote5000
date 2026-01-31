@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { getBuildInfo } from './build-info.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -79,10 +80,17 @@ if (signedBuild) {
 
 writeConfig();
 
+const buildInfo = getBuildInfo();
+const buildEnv = {
+  ...process.env,
+  VITE_BUILD_LABEL: process.env.VITE_BUILD_LABEL ?? buildInfo.label,
+  VITE_BUILD_TIME: process.env.VITE_BUILD_TIME ?? buildInfo.time,
+};
+
 const buildResult = spawnSync('npm', ['run', 'tauri', '--', 'build'], {
   cwd: repoRoot,
   stdio: 'inherit',
-  env: process.env
+  env: buildEnv
 });
 
 restoreConfig();

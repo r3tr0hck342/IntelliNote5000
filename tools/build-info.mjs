@@ -30,14 +30,15 @@ export const getBuildInfo = (options = {}) => {
   const now = options.now ?? new Date();
   const time = now.toISOString();
   const version = getPackageVersion(rootDir);
-  const commit = getGitShortSha() ?? 'unknown';
+  const commit = getGitShortSha();
   const envLabel = (process.env.BUILD_LABEL ?? '').trim();
-  const label = envLabel || `intellinote-${version}-${commit}-${formatBuildTimestamp(time)}`;
+  const buildStamp = commit ?? formatBuildTimestamp(time);
+  const label = envLabel || `IntelliNote5000 ${version} (${buildStamp})`;
 
   return {
     label,
     version,
-    commit,
+    commit: commit ?? 'unknown',
     time
   };
 };
