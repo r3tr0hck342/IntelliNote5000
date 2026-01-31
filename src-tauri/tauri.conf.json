@@ -65,8 +65,8 @@
         "infoPlist": {
           "NSMicrophoneUsageDescription": "IntelliNote needs microphone access to record and transcribe lecture audio."
         },
-        "providerShortName": null,
-        "signingIdentity": null,
+        "providerShortName": "ENV:TAURI_MACOS_PROVIDER_SHORT_NAME",
+        "signingIdentity": "ENV:TAURI_MACOS_SIGNING_IDENTITY",
         "dmg": {
           "windowPosition": {
             "x": 418,
