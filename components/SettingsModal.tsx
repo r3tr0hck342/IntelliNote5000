@@ -7,6 +7,7 @@ import { SttConfig, SttProviderId } from '../types/stt';
 import { SttProviderMetadata } from '../services/stt';
 import type { AutoGenerationConfig } from '../utils/autoGenerationConfig';
 import { getBuildLabel } from '../utils/buildLabel';
+import { getPlatformInfo } from '../utils/diagnosticsBundle';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -70,6 +71,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isSavingStt, setIsSavingStt] = useState(false);
   const [autoGenConfig, setAutoGenConfig] = useState(autoGenerationConfig);
   const buildLabel = getBuildLabel();
+  const platformInfo = getPlatformInfo();
 
   useEffect(() => {
     setSelectedProvider(apiConfig?.provider ?? defaultProvider);
@@ -404,6 +406,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg space-y-2">
               <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Build Label</div>
               <div className="text-sm font-mono text-gray-800 dark:text-gray-200 break-all">{buildLabel}</div>
+              <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 pt-2">Platform</div>
+              <div className="text-sm text-gray-800 dark:text-gray-200">{platformInfo.target}</div>
             </div>
           </section>
         </div>

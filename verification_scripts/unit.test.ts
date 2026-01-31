@@ -220,15 +220,26 @@ const testRedaction = () => {
   const redactedData = redactSensitiveData({
     apiKey: 'secret-key',
     nested: { token: 'token-value', note: 'Bearer abc123' },
+    headers: { Authorization: 'Bearer other-secret' },
+    api_key: 'sk-1234567890abcdef',
   }) as Record<string, unknown>;
   assert.equal(redactedData.apiKey, '[REDACTED]');
   assert.deepEqual(redactedData.nested, { token: '[REDACTED]', note: '[REDACTED]' });
+  assert.deepEqual(redactedData.headers, { Authorization: '[REDACTED]' });
+  assert.equal(redactedData.api_key, '[REDACTED]');
 };
 
 const testDiagnosticsBundleShape = () => {
   const buildLabel = 'IntelliNote5000 0.0.0 (test)';
   const bundle = buildDiagnosticsBundle({
-    appInfo: { name: 'IntelliNote', version: '0.0.0', buildMode: 'test', buildTime: null, buildLabel },
+    appInfo: {
+      name: 'IntelliNote',
+      version: '0.0.0',
+      buildMode: 'test',
+      buildTime: '2024-01-01T00:00:00.000Z',
+      buildLabel,
+      buildCommit: 'abc123',
+    },
     platform: { target: 'web' },
     providerConfigPresence: { aiConfigured: true, sttConfigured: false },
     logs: [
@@ -245,6 +256,8 @@ const testDiagnosticsBundleShape = () => {
 
   assert.equal(bundle.app.version, '0.0.0');
   assert.equal(bundle.app.buildLabel, buildLabel);
+  assert.equal(bundle.app.buildCommit, 'abc123');
+  assert.equal(bundle.app.buildTime, '2024-01-01T00:00:00.000Z');
   assert.equal(bundle.platform.target, 'web');
   assert.equal(bundle.providerConfigPresence.aiConfigured, true);
   assert.equal(bundle.logs[0].message, '[REDACTED]');

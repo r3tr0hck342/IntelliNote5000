@@ -8,8 +8,9 @@
     "npm": ">=10.0.0"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "node tools/set-vite-env.mjs dev vite",
+    "build": "node tools/set-vite-env.mjs build vite build",
+    "build:info": "node tools/build-info.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "start-desktop": "npm run tauri dev",

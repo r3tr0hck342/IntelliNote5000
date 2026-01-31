@@ -80,11 +80,13 @@ if (signedBuild) {
 
 writeConfig();
 
-const buildInfo = getBuildInfo();
+const buildInfo = getBuildInfo({ mode: 'prod' });
 const buildEnv = {
   ...process.env,
   VITE_BUILD_LABEL: process.env.VITE_BUILD_LABEL ?? buildInfo.label,
-  VITE_BUILD_TIME: process.env.VITE_BUILD_TIME ?? buildInfo.time,
+  VITE_BUILD_VERSION: process.env.VITE_BUILD_VERSION ?? buildInfo.version,
+  VITE_BUILD_COMMIT: process.env.VITE_BUILD_COMMIT ?? (buildInfo.commit ?? ''),
+  VITE_BUILD_TIME: process.env.VITE_BUILD_TIME ?? buildInfo.buildTime,
 };
 
 const buildResult = spawnSync('npm', ['run', 'tauri', '--', 'build'], {
