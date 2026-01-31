@@ -4,12 +4,14 @@ import { redactSensitiveData, redactSensitiveText } from './redaction';
 import { isTauri } from './native';
 import type { SttProbeSummary } from './sttProbe';
 import { getLastSttProbeSummary } from './sttProbe';
+import { getBuildLabel } from './buildLabel';
 
 export interface AppInfo {
   name: string;
   version: string;
   buildMode: string;
   buildTime: string | null;
+  buildLabel: string;
 }
 
 export interface PlatformInfo {
@@ -56,6 +58,7 @@ export const getAppInfo = (): AppInfo => {
     version: packageJson.version,
     buildMode: getBuildMode(),
     buildTime: buildTime ?? null,
+    buildLabel: getBuildLabel(),
   };
 };
 

@@ -6,6 +6,7 @@ import { ProviderMetadata } from '../services/providers/types';
 import { SttConfig, SttProviderId } from '../types/stt';
 import { SttProviderMetadata } from '../services/stt';
 import type { AutoGenerationConfig } from '../utils/autoGenerationConfig';
+import { getBuildLabel } from '../utils/buildLabel';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -68,6 +69,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingStt, setIsSavingStt] = useState(false);
   const [autoGenConfig, setAutoGenConfig] = useState(autoGenerationConfig);
+  const buildLabel = getBuildLabel();
 
   useEffect(() => {
     setSelectedProvider(apiConfig?.provider ?? defaultProvider);
@@ -394,6 +396,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <section>
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">About</h3>
+            <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg space-y-2">
+              <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Build Label</div>
+              <div className="text-sm font-mono text-gray-800 dark:text-gray-200 break-all">{buildLabel}</div>
             </div>
           </section>
         </div>

@@ -226,8 +226,9 @@ const testRedaction = () => {
 };
 
 const testDiagnosticsBundleShape = () => {
+  const buildLabel = 'IntelliNote5000 0.0.0 (test)';
   const bundle = buildDiagnosticsBundle({
-    appInfo: { name: 'IntelliNote', version: '0.0.0', buildMode: 'test', buildTime: null },
+    appInfo: { name: 'IntelliNote', version: '0.0.0', buildMode: 'test', buildTime: null, buildLabel },
     platform: { target: 'web' },
     providerConfigPresence: { aiConfigured: true, sttConfigured: false },
     logs: [
@@ -235,18 +236,20 @@ const testDiagnosticsBundleShape = () => {
         id: 'log-1',
         timestamp: new Date().toISOString(),
         level: 'info',
-        message: 'api_key=secret',
-        data: { apiKey: 'secret' },
+        message: 'api_key=super-secret-token',
+        data: { apiKey: 'super-secret-token' },
       },
     ],
     sttProbeSummary: null,
   });
 
   assert.equal(bundle.app.version, '0.0.0');
+  assert.equal(bundle.app.buildLabel, buildLabel);
   assert.equal(bundle.platform.target, 'web');
   assert.equal(bundle.providerConfigPresence.aiConfigured, true);
   assert.equal(bundle.logs[0].message, '[REDACTED]');
   assert.equal(bundle.logs[0].data?.apiKey, '[REDACTED]');
+  assert.ok(!JSON.stringify(bundle).includes('super-secret-token'));
 };
 
 const run = async () => {

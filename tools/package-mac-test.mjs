@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import os from 'os';
-import { formatBuildInfoText, getBuildInfo } from './build-info.mjs';
+import { getBuildInfo } from './build-info.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -186,7 +186,7 @@ const main = () => {
   const buildLabel = buildInfo.label;
 
   writeTesterReadme(readmePath, buildLabel);
-  fs.writeFileSync(buildInfoPath, formatBuildInfoText(buildInfo), 'utf-8');
+  fs.writeFileSync(buildInfoPath, `${buildLabel}\n`, 'utf-8');
   createZip(appPath, zipPath);
 
   const dmgResult = createDmg(appPath, dmgPath);
