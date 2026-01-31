@@ -57,6 +57,8 @@ const buildHistory = (history: ChatMessage[]): OpenAiMessage[] => history.map(ms
 }));
 
 const selectModel = (options?: ProviderRuntimeOptions) => (options?.useIntelligenceMode ? PRO_MODEL : FAST_MODEL);
+const buildDryRunMessage = (provider: string, action: string, payloadLength: number) =>
+    `[Dry Run] ${provider} ${action} would send ${payloadLength} characters.`;
 
 export const createOpenAiProvider = (config: ApiConfig): AiProvider => {
     return {
@@ -67,6 +69,9 @@ export const createOpenAiProvider = (config: ApiConfig): AiProvider => {
             try {
                 const context = formatContext(transcript, handouts);
                 const prompt = getPromptForMode(mode, context);
+                if (options?.dryRun) {
+                    return buildDryRunMessage('OpenAI', `process ${mode}`, prompt.length);
+                }
                 const result = await callOpenAi(config, {
                     model: selectModel(options),
                     messages: [
@@ -86,6 +91,13 @@ export const createOpenAiProvider = (config: ApiConfig): AiProvider => {
                 const prompt = `${getFlashcardPrompt(context, options?.count ?? 10)}
 
 Return the flashcards as a JSON array with objects using keys "front" and "back".`;
+                if (options?.dryRun) {
+                    const count = options?.count ?? 10;
+                    return Array.from({ length: count }, (_, index) => ({
+                        front: `Dry run card ${index + 1}`,
+                        back: buildDryRunMessage('OpenAI', 'flashcards', prompt.length),
+                    }));
+                }
                 const result = await callOpenAi(config, {
                     model: selectModel(options),
                     messages: [
@@ -100,12 +112,15 @@ Return the flashcards as a JSON array with objects using keys "front" and "back"
                 throw mapProviderError(error, 'openai');
             }
         },
-        generateTags: async (transcript, handouts) => {
+        generateTags: async (transcript, handouts, options) => {
             try {
                 const context = formatContext(transcript, handouts);
                 const prompt = `${getTagPrompt(context)}
 
 Return only a valid JSON array.`;
+                if (options?.dryRun) {
+                    return ['dry-run', `openai:${prompt.length}`];
+                }
                 const result = await callOpenAi(config, {
                     model: FAST_MODEL,
                     messages: [
@@ -128,6 +143,10 @@ Return only a valid JSON array.`;
                     ...buildHistory(history),
                     { role: 'user', content: message },
                 ];
+                if (options?.dryRun) {
+                    yield { textDelta: buildDryRunMessage('OpenAI', 'chat', messages.map(item => item.content).join('\n').length) };
+                    return;
+                }
                 const result = await callOpenAi(config, {
                     model: selectModel(options),
                     messages,
@@ -144,6 +163,9 @@ Return only a valid JSON array.`;
         editTranscript: async (text, mode, options) => {
             try {
                 const prompt = getEditPrompt(mode, text, options?.customPrompt);
+                if (options?.dryRun) {
+                    return buildDryRunMessage('OpenAI', `edit ${mode}`, prompt.length);
+                }
                 const result = await callOpenAi(config, {
                     model: selectModel(options),
                     messages: [

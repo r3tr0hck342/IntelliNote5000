@@ -40,6 +40,11 @@ INTELLINOTE5000
 - The importer normalizes whitespace, preserves paragraphs, and detects timestamps (`[00:12:03]`, `00:12:03.123`, SRT/VTT cues).
 - Imported transcripts run the same AI pipeline as live sessions (notes, study guide, test questions, flashcards, tags) and show progress + cancellation in the import modal.
 
+### Diagnostics
+- Open the Diagnostics panel from **Settings → Diagnostics**.
+- **Run 10s STT Probe**: Requests microphone access, streams audio to the configured Deepgram provider for 10 seconds, and reports timing stats (time to first interim/final, cadence, reconnects, queue depth). No transcripts are saved; this is strictly a connectivity and latency check.
+- **Dry-run Import Pipeline**: Runs the transcript import normalization + segmentation and triggers the AI pipeline entrypoints without calling external APIs. Use this when API keys are not configured to confirm that notes, study guide, test questions, flashcards, tags, and chat wiring are all connected.
+
 Add new providers by creating an adapter in `services/providers/` and surfacing it in Settings.
 
 ### Secure API Key Storage

@@ -8,6 +8,7 @@ export interface StreamingSttCallbacks {
   onFinal: (result: SttFinalResult) => void;
   onError: (error: SttError) => void;
   onStateChange: (state: StreamingSttState) => void;
+  onSocketClose?: (event: CloseEvent) => void;
 }
 
 export interface StreamingSttSession {

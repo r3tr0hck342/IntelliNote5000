@@ -36,6 +36,9 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
             try {
                 const context = formatContext(transcript, handouts);
                 const prompt = getPromptForMode(mode, context);
+                if (options?.dryRun) {
+                    return `[Dry Run] Gemini process ${mode} would send ${prompt.length} characters.`;
+                }
                 const response = await client.models.generateContent({
                     model: selectModel('gemini-flash-lite-latest', 'gemini-2.5-pro', options),
                     contents: prompt,
@@ -51,6 +54,12 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
                 const count = options?.count ?? 10;
                 const context = formatContext(transcript, handouts);
                 const prompt = getFlashcardPrompt(context, count);
+                if (options?.dryRun) {
+                    return Array.from({ length: count }, (_, index) => ({
+                        front: `Dry run card ${index + 1}`,
+                        back: `[Dry Run] Gemini flashcards would send ${prompt.length} characters.`,
+                    }));
+                }
                 const response = await client.models.generateContent({
                     model: selectModel('gemini-flash-lite-latest', 'gemini-2.5-pro', options),
                     contents: prompt,
@@ -76,10 +85,13 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
                 throw mapProviderError(error, 'gemini');
             }
         },
-        generateTags: async (transcript: TranscriptSegment[], handouts: Handout[]): Promise<string[]> => {
+        generateTags: async (transcript: TranscriptSegment[], handouts: Handout[], options?: ProviderRuntimeOptions): Promise<string[]> => {
             try {
                 const context = formatContext(transcript, handouts);
                 const prompt = getTagPrompt(context);
+                if (options?.dryRun) {
+                    return ['dry-run', `gemini:${prompt.length}`];
+                }
                 const response = await client.models.generateContent({
                     model: 'gemini-flash-lite-latest',
                     contents: prompt,
@@ -97,6 +109,11 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
         generateChatStream: async function* (history: ChatMessage[], message: string, transcript: TranscriptSegment[], handouts: Handout[], options?: ProviderRuntimeOptions): AsyncGenerator<AiChatChunk> {
             try {
                 const context = formatContext(transcript, handouts);
+                if (options?.dryRun) {
+                    const payloadLength = [getChatSystemPrompt(context), message, ...history.map(item => item.content)].join('\n').length;
+                    yield { textDelta: `[Dry Run] Gemini chat would send ${payloadLength} characters.` };
+                    return;
+                }
                 const contents = [
                     ...history.map(msg => ({
                         role: msg.role,
@@ -133,6 +150,9 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
         editTranscript: async (text: string, mode: AiEditMode, options?: ProviderRuntimeOptions): Promise<string> => {
             try {
                 const prompt = getEditPrompt(mode, text, options?.customPrompt);
+                if (options?.dryRun) {
+                    return `[Dry Run] Gemini edit ${mode} would send ${prompt.length} characters.`;
+                }
                 const response = await client.models.generateContent({
                     model: selectModel('gemini-flash-lite-latest', 'gemini-2.5-pro', options),
                     contents: prompt,
