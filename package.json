@@ -45,7 +45,7 @@
     "@capacitor/ios": "^6.1.1",
     "@tauri-apps/api": "^1.6.0",
     "capacitor-secure-storage-plugin": "^0.8.0",
-    "mermaid": "^10.9.1",
+    "mermaid": "^10.9.6",
     "pdfjs-dist": "^4.4.168",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
