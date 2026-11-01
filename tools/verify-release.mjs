@@ -49,36 +49,21 @@ const tauriConfPath = requireFile('src-tauri/tauri.conf.json');
 if (tauriConfPath) {
   const tauriRaw = fs.readFileSync(tauriConfPath, 'utf-8');
   const tauriConf = JSON.parse(tauriRaw);
-  const macosConfig = tauriConf?.tauri?.bundle?.macOS;
+  const macosConfig = tauriConf?.bundle?.macOS;
   if (!macosConfig) {
-    errors.push('Missing tauri.bundle.macOS in src-tauri/tauri.conf.json.');
+    errors.push('Missing bundle.macOS in src-tauri/tauri.conf.json.');
   } else {
-    if (!macosConfig.infoPlist?.NSMicrophoneUsageDescription) {
-      errors.push('Missing NSMicrophoneUsageDescription in tauri.bundle.macOS.infoPlist.');
+    const macInfoPlist = readFile('src-tauri/Info.plist');
+    if (macInfoPlist && !macInfoPlist.includes('NSMicrophoneUsageDescription')) {
+      errors.push('Missing NSMicrophoneUsageDescription in src-tauri/Info.plist.');
     }
     if (!macosConfig.entitlements) {
-      errors.push('Missing tauri.bundle.macOS.entitlements path.');
+      errors.push('Missing bundle.macOS.entitlements path.');
     } else {
       const entitlementsPath = path.join('src-tauri', macosConfig.entitlements);
       const entitlements = readFile(entitlementsPath);
       if (entitlements && !entitlements.includes('com.apple.security.device.audio-input')) {
         errors.push('Tauri entitlements missing com.apple.security.device.audio-input.');
-      }
-    }
-    if (!macosConfig.signingIdentity) {
-      const message = 'Missing tauri.bundle.macOS.signingIdentity.';
-      if (releaseBuild) {
-        errors.push(message);
-      } else {
-        warnings.push(message);
-      }
-    }
-    if (!macosConfig.providerShortName) {
-      const message = 'Missing tauri.bundle.macOS.providerShortName.';
-      if (releaseBuild) {
-        errors.push(message);
-      } else {
-        warnings.push(message);
       }
     }
     if (releaseBuild) {
@@ -92,14 +77,7 @@ if (tauriConfPath) {
   }
 }
 
-const capacitorConfig = readFile('capacitor.config.ts');
-if (capacitorConfig) {
-  requireIncludes(capacitorConfig, 'NSMicrophoneUsageDescription', 'Capacitor iOS microphone usage description');
-  requireIncludes(capacitorConfig, 'UIBackgroundModes', 'Capacitor iOS background audio modes');
-  requireIncludes(capacitorConfig, 'RECORD_AUDIO', 'Capacitor Android RECORD_AUDIO permission');
-  requireIncludes(capacitorConfig, 'FOREGROUND_SERVICE', 'Capacitor Android FOREGROUND_SERVICE permission');
-  requireIncludes(capacitorConfig, 'FOREGROUND_SERVICE_MICROPHONE', 'Capacitor Android FOREGROUND_SERVICE_MICROPHONE permission');
-}
+readFile('capacitor.config.ts');
 
 const iosInfoPlist = readFile('ios/App/App/Info.plist');
 if (iosInfoPlist) {

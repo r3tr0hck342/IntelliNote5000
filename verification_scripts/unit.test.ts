@@ -15,6 +15,7 @@ import {
 } from '../utils/sttProbe.ts';
 import { runDryRunPipeline } from '../services/aiService.ts';
 import type { AiProvider, ProviderMetadata } from '../services/providers/types.ts';
+import type { LegacyLecture } from '../types.ts';
 import { redactSensitiveData, redactSensitiveText } from '../utils/redaction.ts';
 import { buildDiagnosticsBundle } from '../utils/diagnosticsBundle.ts';
 
@@ -89,7 +90,7 @@ const testTranscriptReconciliation = () => {
 };
 
 const testSessionMigration = () => {
-  const legacy = [
+  const legacy: LegacyLecture[] = [
     {
       id: 'legacy-1',
       title: 'Legacy Lecture',

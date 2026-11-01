@@ -20,10 +20,10 @@ if (!signedBuild && !unsignedBuild) {
 
 const tauriRaw = fs.readFileSync(tauriConfigPath, 'utf-8');
 const tauriConfig = JSON.parse(tauriRaw);
-const macosConfig = tauriConfig?.tauri?.bundle?.macOS;
+const macosConfig = tauriConfig?.bundle?.macOS;
 
 if (!macosConfig) {
-  console.error('Missing tauri.bundle.macOS configuration.');
+  console.error('Missing bundle.macOS configuration.');
   process.exit(1);
 }
 
@@ -74,7 +74,8 @@ if (signedBuild) {
     requireEnv('APPLE_TEAM_ID');
   }
 } else {
-  macosConfig.signingIdentity = null;
+  // Ad-hoc signature: unsigned Apple Silicon builds are otherwise reported as "damaged".
+  macosConfig.signingIdentity = '-';
   macosConfig.providerShortName = null;
 }
 

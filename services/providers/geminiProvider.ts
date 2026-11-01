@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, type Content } from "@google/genai";
 import { GenerationMode, Flashcard, Handout, TranscriptSegment, ChatMessage, AiEditMode, GroundingSource } from '../../types';
 import { formatContext, getPromptForMode, getFlashcardPrompt, getTagPrompt, getChatSystemPrompt, getEditPrompt } from '../aiPrompts';
 import { AiProvider, ProviderMetadata, ProviderRuntimeOptions, AiChatChunk } from './types';
@@ -114,7 +114,7 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
                     yield { textDelta: `[Dry Run] Gemini chat would send ${payloadLength} characters.` };
                     return;
                 }
-                const contents = [
+                const contents: Content[] = [
                     ...history.map(msg => ({
                         role: msg.role,
                         parts: [{ text: msg.content }]
@@ -124,7 +124,7 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
 
                 const stream = await client.models.generateContentStream({
                     model: selectModel('gemini-2.5-flash', 'gemini-2.5-pro', options),
-                    contents: contents as any,
+                    contents,
                     config: {
                         systemInstruction: getChatSystemPrompt(context),
                         tools: options?.useSearchGrounding ? [{ googleSearch: {} }] : undefined,

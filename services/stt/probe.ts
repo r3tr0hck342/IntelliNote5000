@@ -123,7 +123,7 @@ export const runSttProbe = async (
       throw new Error('Microphone access is not available in this environment.');
     }
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: TARGET_SAMPLE_RATE });
+    audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: TARGET_SAMPLE_RATE });
     if (audioContext.sampleRate !== TARGET_SAMPLE_RATE) {
       logEvent('warn', 'STT probe sample rate mismatch', {
         actual: audioContext.sampleRate,

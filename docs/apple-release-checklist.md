@@ -7,7 +7,7 @@ This guide assumes you are developing on macOS Sonoma or newer with Node 20.x al
 - [ ] Install Xcode (latest stable) from the App Store and accept the license (`sudo xcodebuild -license`).
 - [ ] Install Xcode Command Line Tools: `xcode-select --install`.
 - [ ] Install Rust toolchain for Tauri desktop builds: `curl https://sh.rustup.rs -sSf | sh` (default options), then `rustup target add aarch64-apple-darwin x86_64-apple-darwin`.
-- [ ] Install `tauri-cli`: `cargo install tauri-cli`.
+- [ ] Tauri CLI v2 comes from `npm install` (`@tauri-apps/cli`); no `cargo install` needed.
 - [ ] Install CocoaPods (needed by Capacitor): `sudo gem install cocoapods`.
 - [ ] Ensure Android tooling is **not** required (this checklist is Mac/iOS only).
 
@@ -16,7 +16,6 @@ This guide assumes you are developing on macOS Sonoma or newer with Node 20.x al
 - [ ] For development/testing, you may keep `VITE_API_KEY`, `VITE_AI_PROVIDER`, and `VITE_AI_BASE_URL` in `.env.local` to prefill default credentials, but **production binaries rely on the runtime Settings UI**, so every end user must paste their own key.
 - [ ] After installing JavaScript dependencies, run `npm run verify:providers` to ensure every configured provider meets validation rules.
 - [ ] Install the secure storage dependencies (`capacitor-secure-storage-plugin`) and run `npx cap sync ios` so iOS builds include the Keychain-backed plugin.
-- [ ] The repo ships with `.npmrc` setting `legacy-peer-deps=true` to satisfy the plugin’s peer-dependency constraints with Capacitor 6—keep that file in place until upstream updates their peer range.
 - [ ] Confirm package metadata:
   - `package.json` `name`, `version`, and `productName`/`identifier` fields in `src-tauri/tauri.conf.json`.
   - Capacitor bundle ID in `capacitor.config.ts` matches App Store Connect app record (e.g., `com.intellinote.app`).

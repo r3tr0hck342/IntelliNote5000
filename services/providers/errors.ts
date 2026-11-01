@@ -29,8 +29,8 @@ export class ProviderError extends Error {
   }
 }
 
-const isNetworkError = (error: any) =>
-  error?.name === 'TypeError' || (typeof error?.message === 'string' && error.message.includes('Network'));
+const isNetworkError = (error: unknown) =>
+  error instanceof Error && (error.name === 'TypeError' || error.message.includes('Network'));
 
 export const mapProviderError = (error: unknown, provider?: ProviderId): ProviderError => {
   if (error instanceof ProviderError) {
@@ -40,7 +40,8 @@ export const mapProviderError = (error: unknown, provider?: ProviderId): Provide
   const message = error instanceof Error ? error.message : 'Unknown provider error.';
   const details: ProviderErrorDetails = { provider, rawMessage: message };
 
-  const status = (error as any)?.status ?? (error as any)?.response?.status;
+  const withStatus = error as { status?: unknown; response?: { status?: unknown } } | null;
+  const status = withStatus?.status ?? withStatus?.response?.status;
   if (typeof status === 'number') {
     details.status = status;
     if (status === 401 || status === 403) {

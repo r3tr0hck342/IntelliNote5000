@@ -35,9 +35,7 @@ fn stt_keyring_entry() -> Result<Entry, keyring::Error> {
 pub fn secure_save_api_config(config: SecureApiConfig) -> Result<(), String> {
     let entry = keyring_entry().map_err(|e| e.to_string())?;
     let serialized = serde_json::to_string(&config).map_err(|e| e.to_string())?;
-    entry
-        .set_password(&serialized)
-        .map_err(|e| e.to_string())
+    entry.set_password(&serialized).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -45,8 +43,7 @@ pub fn secure_load_api_config() -> Result<Option<SecureApiConfig>, String> {
     let entry = keyring_entry().map_err(|e| e.to_string())?;
     match entry.get_password() {
         Ok(raw) => {
-            let parsed: SecureApiConfig =
-                serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+            let parsed: SecureApiConfig = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
             Ok(Some(parsed))
         }
         Err(keyring::Error::NoEntry) => Ok(None),
@@ -67,9 +64,7 @@ pub fn secure_clear_api_config() -> Result<(), String> {
 pub fn secure_save_stt_config(config: SecureSttConfig) -> Result<(), String> {
     let entry = stt_keyring_entry().map_err(|e| e.to_string())?;
     let serialized = serde_json::to_string(&config).map_err(|e| e.to_string())?;
-    entry
-        .set_password(&serialized)
-        .map_err(|e| e.to_string())
+    entry.set_password(&serialized).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -77,8 +72,7 @@ pub fn secure_load_stt_config() -> Result<Option<SecureSttConfig>, String> {
     let entry = stt_keyring_entry().map_err(|e| e.to_string())?;
     match entry.get_password() {
         Ok(raw) => {
-            let parsed: SecureSttConfig =
-                serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+            let parsed: SecureSttConfig = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
             Ok(Some(parsed))
         }
         Err(keyring::Error::NoEntry) => Ok(None),

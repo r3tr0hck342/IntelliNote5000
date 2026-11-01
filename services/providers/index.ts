@@ -1,5 +1,6 @@
 import { ApiConfig } from '../../utils/apiConfig';
-import { AiProvider, ProviderId, ProviderMetadata } from './types';
+import { AiProvider, ProviderMetadata } from './types';
+import type { ProviderId } from '../../types/ai';
 import { createGeminiProvider, geminiMetadata } from './geminiProvider';
 import { createOpenAiProvider, openAiMetadata } from './openAiProvider';
 

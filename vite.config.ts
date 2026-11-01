@@ -24,7 +24,7 @@ export default defineConfig(async () => ({
         manualChunks: {
           mermaid: ['mermaid'],
           pdfjs: ['pdfjs-dist'],
-          'react-quill': ['react-quill', 'quill'],
+          'react-quill': ['react-quill-new', 'quill'],
         },
       },
     },

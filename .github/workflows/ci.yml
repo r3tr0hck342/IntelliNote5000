@@ -29,3 +29,24 @@ jobs:
         run: npm run build
       - name: Verify release
         run: npm run verify:release
+
+  desktop-compile:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Cargo check
+        # generate_context! requires frontendDist to exist; the web build is checked in release-gate.
+        run: |
+          mkdir -p dist
+          cargo check --manifest-path src-tauri/Cargo.toml --locked

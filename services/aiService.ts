@@ -117,7 +117,7 @@ export const getChatResponseStream = async (
     return runAiRequest(
         'Chat response',
         provider.id,
-        () => provider.generateChatStream(history, message, transcript, handouts, {
+        async () => provider.generateChatStream(history, message, transcript, handouts, {
             useSearchGrounding,
             useIntelligenceMode,
             dryRun: options?.dryRun,

@@ -7,19 +7,10 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: 'https'
   },
+  // Microphone/background-audio permissions live in ios/App/App/Info.plist and
+  // android/app/src/main/AndroidManifest.xml; Capacitor has no config keys for them.
   ios: {
-    contentInset: 'always',
-    infoPlist: {
-      NSMicrophoneUsageDescription: 'IntelliNote needs microphone access to record and transcribe lecture audio.',
-      UIBackgroundModes: ['audio']
-    }
-  },
-  android: {
-    permissions: [
-      'RECORD_AUDIO',
-      'FOREGROUND_SERVICE',
-      'FOREGROUND_SERVICE_MICROPHONE'
-    ]
+    contentInset: 'always'
   }
 };
 

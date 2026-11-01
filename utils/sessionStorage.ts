@@ -1,8 +1,10 @@
 import type { LegacyLecture, LectureAsset, StudySession, TranscriptSegment, PersistedSessions } from '../types';
 import { createId, buildTranscriptText } from './transcript.ts';
+import { appendAudioChunk, clearLocalDb, hasRecording, kvGet, kvSet } from './localDb.ts';
 
 const STORAGE_KEY = 'intellinote-sessions';
 const LEGACY_KEY = 'intellinote-lectures';
+const IDB_SESSIONS_KEY = 'sessions';
 
 const CURRENT_SCHEMA_VERSION = 1;
 
@@ -124,7 +126,7 @@ export const migratePersistedSessions = (payload: PersistedSessions): PersistedS
   });
 };
 
-export const loadPersistedSessions = (): PersistedSessions => {
+const loadLocalStorageSessions = (): PersistedSessions => {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
     return { schemaVersion: CURRENT_SCHEMA_VERSION, sessions: [] };
   }
@@ -159,18 +161,47 @@ export const loadPersistedSessions = (): PersistedSessions => {
   return { schemaVersion: CURRENT_SCHEMA_VERSION, sessions: [] };
 };
 
-export const persistSessions = (sessions: StudySession[]) => {
-  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
-  const payload: PersistedSessions = {
-    schemaVersion: CURRENT_SCHEMA_VERSION,
-    sessions,
-  };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+// Builds before IndexedDB kept recordings as base64 data URLs on the asset; move them to the audio store.
+const moveInlineAudioToStore = (sessions: StudySession[]): Promise<StudySession[]> =>
+  Promise.all(sessions.map(async session => ({
+    ...session,
+    assets: await Promise.all(session.assets.map(async asset => {
+      if (!asset.audioPath?.startsWith('data:')) return asset;
+      // hasRecording guard keeps a retried migration from duplicating the audio.
+      if (!(await hasRecording(asset.id))) {
+        const blob = await (await fetch(asset.audioPath)).blob();
+        await appendAudioChunk(asset.id, blob, blob.type || 'audio/webm');
+      }
+      return { ...asset, audioPath: undefined };
+    })),
+  })));
+
+export const loadPersistedSessions = async (): Promise<PersistedSessions> => {
+  const stored = await kvGet<PersistedSessions>(IDB_SESSIONS_KEY);
+  if (stored && typeof stored.schemaVersion === 'number' && isArray(stored.sessions)) {
+    return migratePersistedSessions(stored);
+  }
+
+  const legacy = loadLocalStorageSessions();
+  if (legacy.sessions.length === 0) return legacy;
+  const migrated: PersistedSessions = { ...legacy, sessions: await moveInlineAudioToStore(legacy.sessions) };
+  await kvSet(IDB_SESSIONS_KEY, migrated);
+  // Drop the localStorage copy only after IndexedDB holds the data.
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(LEGACY_KEY);
+  return migrated;
 };
 
-export const clearPersistedSessions = () => {
-  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
-  localStorage.removeItem(STORAGE_KEY);
+// Rejects on failure (quota, blocked storage) so callers can tell the user.
+export const persistSessions = (sessions: StudySession[]): Promise<void> =>
+  kvSet(IDB_SESSIONS_KEY, { schemaVersion: CURRENT_SCHEMA_VERSION, sessions } satisfies PersistedSessions);
+
+export const clearPersistedSessions = async () => {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(LEGACY_KEY);
+  }
+  await clearLocalDb();
 };
 
 export const getSessionSchemaVersion = () => CURRENT_SCHEMA_VERSION;

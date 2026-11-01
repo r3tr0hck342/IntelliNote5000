@@ -7,7 +7,7 @@ const CAP_STORAGE_KEY = 'intellinote_api_config';
 
 const isCapacitorNative = () => {
   if (typeof window === 'undefined') return false;
-  const maybeCapacitor = (window as any).Capacitor;
+  const maybeCapacitor = window.Capacitor;
   return !!maybeCapacitor && typeof maybeCapacitor.isNativePlatform === 'function' && maybeCapacitor.isNativePlatform();
 };
 
@@ -55,7 +55,7 @@ export const secureStorage = {
   async get(): Promise<ApiConfig | null> {
     if (isTauri()) {
       try {
-        const result = await (await import('@tauri-apps/api/tauri')).invoke<ApiConfig | null>('secure_load_api_config');
+        const result = await (await import('@tauri-apps/api/core')).invoke<ApiConfig | null>('secure_load_api_config');
         return result ?? null;
       } catch (error) {
         console.warn('Failed to load config from Tauri keychain:', error);
@@ -80,7 +80,7 @@ export const secureStorage = {
   async set(config: ApiConfig): Promise<void> {
     if (isTauri()) {
       try {
-        await (await import('@tauri-apps/api/tauri')).invoke('secure_save_api_config', { config });
+        await (await import('@tauri-apps/api/core')).invoke('secure_save_api_config', { config });
         return;
       } catch (error) {
         console.warn('Failed to persist config via Tauri keychain:', error);
@@ -102,7 +102,7 @@ export const secureStorage = {
   async clear(): Promise<void> {
     if (isTauri()) {
       try {
-        await (await import('@tauri-apps/api/tauri')).invoke('secure_clear_api_config');
+        await (await import('@tauri-apps/api/core')).invoke('secure_clear_api_config');
         return;
       } catch (error) {
         console.warn('Failed to clear Tauri keychain entry:', error);

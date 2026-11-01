@@ -20,8 +20,8 @@ const formatBuildTimestamp = (timestamp: string): string => {
 };
 
 const getEnvValue = (key: string): string | undefined => {
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env?.[key] !== undefined) {
-    return (import.meta as any).env[key];
+  if (typeof import.meta !== 'undefined' && import.meta.env?.[key] !== undefined) {
+    return import.meta.env[key];
   }
   if (typeof process !== 'undefined' && process.env?.[key] !== undefined) {
     return process.env[key];
@@ -30,8 +30,8 @@ const getEnvValue = (key: string): string | undefined => {
 };
 
 const getBuildMode = (): string => {
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env?.MODE) {
-    return (import.meta as any).env.MODE;
+  if (typeof import.meta !== 'undefined' && import.meta.env?.MODE) {
+    return import.meta.env.MODE;
   }
   if (typeof process !== 'undefined' && process.env?.NODE_ENV) {
     return process.env.NODE_ENV;

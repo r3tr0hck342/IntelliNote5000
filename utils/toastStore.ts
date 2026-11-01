@@ -34,7 +34,9 @@ const removeToast = (id: string) => {
 export const subscribeToToasts = (listener: (items: ToastMessage[]) => void) => {
   listeners.add(listener);
   listener([...toasts]);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 };
 
 export const pushToast = (message: Omit<ToastMessage, 'id'>) => {

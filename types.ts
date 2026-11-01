@@ -44,7 +44,7 @@ export interface LegacyLecture {
   transcript: LegacyTranscriptSegment[];
   handouts: Handout[];
   organizedNotes: string | null; // This will now store HTML
-  organizedNotesStatus?: 'generating' | 'error' | 'success';
+  organizedNotesStatus?: 'idle' | 'generating' | 'error' | 'success';
   studyGuide: string | null;
   testQuestions: string | null;
   flashcards: Flashcard[] | null;
@@ -63,7 +63,7 @@ export interface StudySession {
   assets: LectureAsset[];
   handouts: Handout[];
   organizedNotes: string | null;
-  organizedNotesStatus?: 'generating' | 'error' | 'success';
+  organizedNotesStatus?: 'idle' | 'generating' | 'error' | 'success';
   studyGuide: string | null;
   testQuestions: string | null;
   flashcards: Flashcard[] | null;

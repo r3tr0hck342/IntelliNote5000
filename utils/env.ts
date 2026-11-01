@@ -4,16 +4,16 @@ import { DEFAULT_PROVIDER_ID } from '../services/providers';
 
 const getRuntimeInjectedConfig = (): ApiConfig | null => {
     if (typeof window === 'undefined') return null;
-    const injected = (window as any).__INTELLINOTE_API_CONFIG;
+    const injected = window.__INTELLINOTE_API_CONFIG;
     if (injected && typeof injected.apiKey === 'string' && injected.apiKey.length > 0) {
         return injected;
     }
     return getCachedApiConfig();
 };
 
-const getViteEnv = (): Record<string, any> | undefined => {
+const getViteEnv = (): ImportMetaEnv | undefined => {
     try {
-        return typeof import.meta !== 'undefined' ? (import.meta as any).env : undefined;
+        return typeof import.meta !== 'undefined' ? import.meta.env : undefined;
     } catch {
         return undefined;
     }
