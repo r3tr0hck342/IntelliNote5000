@@ -21,10 +21,13 @@ interface DeepgramParagraph { id?: string | number; text?: string; start?: numbe
 interface DeepgramStreamPayload { channel?: { alternatives?: DeepgramAlternative[] }; utterance_id?: string; metadata?: { utterance_id?: string } }
 interface DeepgramRecordedPayload { results?: { channels?: { alternatives?: DeepgramAlternative[] }[] } }
 
+// `!= null`, not truthiness: 0 s is a real timestamp (the start of the recording).
+const secondsToMs = (seconds?: number) => (seconds != null ? Math.round(seconds * 1000) : undefined);
+
 const mapWord = (word: DeepgramWord) => ({
   word: word.word,
-  startMs: word.start ? Math.round(word.start * 1000) : undefined,
-  endMs: word.end ? Math.round(word.end * 1000) : undefined,
+  startMs: secondsToMs(word.start),
+  endMs: secondsToMs(word.end),
   confidence: word.confidence,
   speaker: word.speaker?.toString(),
 });
@@ -54,8 +57,8 @@ const parseRecordedTranscript = (payload: DeepgramRecordedPayload): SttTranscrip
   const segments: SttFinalResult[] = paragraphs.length
     ? paragraphs.map(paragraph => ({
         text: paragraph.sentences?.map(sentence => sentence.text).join(' ') ?? paragraph.text ?? '',
-        startMs: paragraph.start ? Math.round(paragraph.start * 1000) : undefined,
-        endMs: paragraph.end ? Math.round(paragraph.end * 1000) : undefined,
+        startMs: secondsToMs(paragraph.start),
+        endMs: secondsToMs(paragraph.end),
         confidence: paragraph.confidence,
         words: paragraph.words?.map(mapWord),
         utteranceId: paragraph.id ? String(paragraph.id) : undefined,

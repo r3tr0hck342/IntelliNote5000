@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import assert from 'node:assert/strict';
 import { loadPersistedSessions, persistSessions, clearPersistedSessions } from '../utils/sessionStorage.ts';
-import { appendAudioChunk, getRecording, hasRecording } from '../utils/localDb.ts';
+import { appendAudioChunk, deleteRecording, getRecording, hasRecording } from '../utils/localDb.ts';
 
 // Minimal localStorage + window for the legacy path.
 const store = new Map<string, string>();
@@ -49,6 +49,13 @@ assert.deepEqual([...new Uint8Array(await rebuilt!.arrayBuffer())], [10, 20, 30]
 assert.equal(rebuilt!.type, 'audio/webm');
 assert.equal(await hasRecording('asset-2'), true);
 assert.equal(await hasRecording('missing'), false);
+
+// 4b. Deleting one asset's recording removes only that asset's chunks.
+await appendAudioChunk('asset-3', new Blob([new Uint8Array([99])]), 'audio/webm');
+await deleteRecording('asset-2');
+assert.equal(await hasRecording('asset-2'), false);
+assert.equal(await hasRecording('asset-3'), true);
+await deleteRecording('missing'); // no-op, must not throw
 
 // 5. Reset wipes sessions and audio.
 await clearPersistedSessions();

@@ -18,6 +18,7 @@ import { loadSttConfig, persistSttConfig, clearStoredSttConfig } from './utils/t
 import { STT_PROVIDER_METADATA } from './services/stt';
 import { buildTranscriptText, createId, normalizeImportedTranscript } from './utils/transcript';
 import { loadPersistedSessions, persistSessions } from './utils/sessionStorage';
+import { deleteRecording } from './utils/localDb';
 import { loadDiagnosticsPreference, persistDiagnosticsPreference } from './utils/diagnosticsConfig';
 import { getDefaultAutoGenerationConfig, loadAutoGenerationConfig, persistAutoGenerationConfig } from './utils/autoGenerationConfig';
 import { getCredentialFallbackPreference, setCredentialFallbackPreference } from './utils/credentialPolicy';
@@ -643,6 +644,12 @@ const App: React.FC = () => {
   
   const handleDeleteLecture = useCallback((idToDelete: string) => {
     if (window.confirm('Are you sure you want to permanently delete this session and all its data?')) {
+        const deletedSession = sessionsRef.current.find(session => session.id === idToDelete);
+        deletedSession?.assets.forEach(asset => {
+            deleteRecording(asset.id).catch(error => {
+                logEvent('error', 'Failed to delete recording', { message: error instanceof Error ? error.message : 'Unknown error' });
+            });
+        });
         setSessions(currentSessions => {
             const newSessions = currentSessions.filter(l => l.id !== idToDelete);
             if (activeSessionId === idToDelete) {
@@ -708,6 +715,13 @@ const App: React.FC = () => {
 
   const activeSession = sessions.find(l => l.id === activeSessionId);
 
+  // Fall back to Welcome when the open session disappears (deleted, reset). Done in an effect, not during render.
+  useEffect(() => {
+    if (currentView === AppView.Note && !activeSession) {
+      setCurrentView(AppView.Welcome);
+    }
+  }, [currentView, activeSession]);
+
   const renderMainContent = () => {
     switch(currentView) {
         case AppView.Live:
@@ -725,7 +739,6 @@ const App: React.FC = () => {
             if (activeSession) {
                 return <MainPanel theme={theme} session={activeSession} activeAssetId={activeAssetId} onSelectAsset={setActiveAssetId} updateSession={updateSession} isMobile={isMobile} onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} isApiKeyReady={isApiKeyReady} onOpenSettings={() => setIsSettingsModalOpen(true)} />;
             }
-            setCurrentView(AppView.Welcome);
             return null;
         case AppView.Welcome:
         default: {

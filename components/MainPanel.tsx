@@ -964,7 +964,8 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
                             session.chatHistory.map((msg, index) => (
                                 <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`max-w-xl p-3 rounded-lg ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-200'}`}>
-                                        <div className="prose prose-sm dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: msg.content.replace(/\n/g, '<br />') }} />
+                                        {/* Plain text: model output can be steered by transcript/handout content, so never inject it as HTML. */}
+                                        <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">{msg.content}</div>
                                         {isChatLoading && msg.role === 'model' && index === session.chatHistory.length - 1 && <span className="animate-pulse">...</span>}
                                         {msg.sources && msg.sources.length > 0 && (
                                             <div className="mt-2 pt-2 border-t border-gray-300 dark:border-gray-600">

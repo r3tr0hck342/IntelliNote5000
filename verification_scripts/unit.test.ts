@@ -18,6 +18,7 @@ import type { AiProvider, ProviderMetadata } from '../services/providers/types.t
 import type { LegacyLecture } from '../types.ts';
 import { redactSensitiveData, redactSensitiveText } from '../utils/redaction.ts';
 import { buildDiagnosticsBundle } from '../utils/diagnosticsBundle.ts';
+import { createDeepgramProvider } from '../services/stt/deepgramProvider.ts';
 
 const testTranscriptReconciliation = () => {
   const baseSegment = {
@@ -266,6 +267,25 @@ const testDiagnosticsBundleShape = () => {
   assert.ok(!JSON.stringify(bundle).includes('super-secret-token'));
 };
 
+const testDeepgramZeroTimestamps = async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    results: { channels: [{ alternatives: [{
+      transcript: 'hello',
+      paragraphs: { paragraphs: [{ text: 'hello', start: 0, end: 1.5, words: [{ word: 'hello', start: 0, end: 0.4 }] }] },
+    }] }] },
+  }))) as typeof fetch;
+  try {
+    const provider = createDeepgramProvider({ provider: 'deepgram', apiKey: 'test' });
+    const result = await provider.transcribeAudio!({ blob: new Blob([]), mimeType: 'audio/webm' });
+    assert.equal(result.segments[0].startMs, 0, 'A 0 s paragraph start must stay 0, not undefined');
+    assert.equal(result.segments[0].endMs, 1500);
+    assert.equal(result.segments[0].words?.[0].startMs, 0, 'A 0 s word start must stay 0, not undefined');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+};
+
 const run = async () => {
   testTranscriptReconciliation();
   testSessionMigration();
@@ -274,6 +294,7 @@ const run = async () => {
   testRedaction();
   testDiagnosticsBundleShape();
   await testDryRunPipeline();
+  await testDeepgramZeroTimestamps();
   console.log('unit.test.ts: all tests passed');
 };
 

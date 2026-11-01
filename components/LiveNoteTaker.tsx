@@ -136,6 +136,8 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
         });
         logEvent('error', 'STT error', { code: err.code, retryable: err.retryable });
         if (!err.retryable || err.code === 'auth_failed') {
+            // Set the ref now: stop() below fires 'closed', which must not schedule a reconnect.
+            connectionStatusRef.current = 'error';
             setConnectionStatus('error');
             streamingSessionRef.current?.stop();
             return;
@@ -146,7 +148,8 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
     const scheduleReconnect = useCallback(async () => {
         const streamConfig = streamConfigRef.current;
         const assetId = activeAssetIdRef.current;
-        if (!streamConfig || !assetId || !isRecording) return;
+        // Refs, not state: this runs from session callbacks created when isRecording was still false.
+        if (!streamConfig || !assetId || !isRecordingRef.current || connectionStatusRef.current === 'error') return;
         if (reconnectAttemptRef.current >= RECONNECT_MAX_ATTEMPTS) {
             setConnectionStatus('error');
             setError('Streaming connection lost. You can still transcribe after recording.');
@@ -213,12 +216,13 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                     },
                     onStateChange: (state) => {
                         if (state === 'connected') {
+                            reconnectAttemptRef.current = 0;
                             setConnectionStatus(isPausedRef.current ? 'paused' : 'live');
                         }
                         if (state === 'paused') {
                             setConnectionStatus('paused');
                         }
-                        if (state === 'closed' && isRecording && !isPausedRef.current) {
+                        if (state === 'closed' && isRecordingRef.current && !isPausedRef.current) {
                             scheduleReconnect();
                         }
                     },
@@ -229,7 +233,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                 handleStreamingError(mapSttError(error));
             }
         }, delay);
-    }, [commitSegments, handleStreamingError, isRecording, scheduleInterimFlush]);
+    }, [commitSegments, handleStreamingError, scheduleInterimFlush]);
 
     const pauseRecording = useCallback(() => {
         setIsPaused(true);
@@ -273,6 +277,8 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
     }, [resumeRecording]);
 
     const stopRecording = useCallback((isError = false) => {
+        // Set the ref now: session.stop() below fires 'closed' before the next render.
+        isRecordingRef.current = false;
         setIsRecording(false);
         setIsPaused(false);
         autoPausedRef.current = false;
@@ -383,6 +389,8 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             activeSessionIdRef.current = sessionId;
             activeAssetIdRef.current = assetId;
             
+            isRecordingRef.current = true;
+            connectionStatusRef.current = 'connecting';
             setIsRecording(true);
             setConnectionStatus('connecting');
             startTimeRef.current = Date.now();
@@ -532,7 +540,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                         if (connectionStatusRef.current !== 'error') {
                             setConnectionStatus('closed');
                         }
-                        if (isRecording && !isPausedRef.current) {
+                        if (isRecordingRef.current && !isPausedRef.current) {
                             scheduleReconnect();
                         }
                         logEvent('info', 'STT connection closed');
@@ -616,6 +624,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                     onAction: onOpenSettings,
                 },
             });
+            isRecordingRef.current = false;
             setIsRecording(false);
             setConnectionStatus('error');
         }

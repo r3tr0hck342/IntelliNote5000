@@ -89,6 +89,16 @@ export const hasRecording = async (assetId: string): Promise<boolean> => {
   return (await requestToPromise(index.count(assetId))) > 0;
 };
 
+export const deleteRecording = async (assetId: string): Promise<void> => {
+  const db = await openDb();
+  const tx = db.transaction(AUDIO_STORE, 'readwrite');
+  const store = tx.objectStore(AUDIO_STORE);
+  // Deletes are queued inside onsuccess so they run in the same (still active) transaction.
+  const keysRequest = store.index(AUDIO_ASSET_INDEX).getAllKeys(assetId);
+  keysRequest.onsuccess = () => keysRequest.result.forEach(key => store.delete(key));
+  return transactionDone(tx);
+};
+
 export const clearLocalDb = async (): Promise<void> => {
   const db = await openDb();
   const tx = db.transaction([KV_STORE, AUDIO_STORE], 'readwrite');
