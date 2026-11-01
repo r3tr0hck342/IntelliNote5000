@@ -3,9 +3,11 @@ import { StudySession, GenerationMode, Flashcard, Handout, TranscriptSegment, Ch
 import { processTranscript, generateFlashcards, getChatResponseStream, editTranscriptWithAi } from '../services/aiService';
 import { DownloadIcon, NoteIcon, ArrowLeftIcon, ArrowRightIcon, RefreshIcon, PaperclipIcon, TagIcon, XIcon, EditIcon, ChatBubbleIcon, SendIcon, UploadIcon, FileTextIcon, BrainIcon, SparklesIcon, LayersIcon, BookOpenIcon, QuestionMarkCircleIcon, MenuIcon, SearchIcon, ChevronUpIcon, ChevronDownIcon } from './icons';
 import { parseFile } from '../utils/fileParser';
-import ReactQuill from 'react-quill';
+import ReactQuill from 'react-quill-new';
 import TurndownService from 'turndown';
-import { isTauri, nativeSave } from '../utils/native';
+import { isTauri, nativeSave, nativeSaveBytes, triggerBrowserDownload } from '../utils/native';
+import { getRecording, hasRecording } from '../utils/localDb';
+import { pushToast } from '../utils/toastStore';
 import { buildTranscriptText, normalizeImportedTranscript } from '../utils/transcript';
 
 const FlashcardViewer: React.FC<{ cards: Flashcard[] }> = ({ cards }) => {
@@ -108,6 +110,16 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
   const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
   const [isLoading, setIsLoading] = useState(false);
   const activeAsset = session.assets.find(asset => asset.id === activeAssetId) ?? session.assets[0] ?? null;
+  const [activeAssetHasAudio, setActiveAssetHasAudio] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setActiveAssetHasAudio(false);
+    if (activeAsset?.sourceType !== 'live') return;
+    hasRecording(activeAsset.id)
+      .then(found => { if (!cancelled) setActiveAssetHasAudio(found); })
+      .catch(error => console.error('Failed to check for a saved recording:', error));
+    return () => { cancelled = true; };
+  }, [activeAsset?.id, activeAsset?.sourceType]);
   const sessionTranscript = session.assets.flatMap(asset => asset.segments).filter(segment => segment.isFinal);
   
   // State for the notes editor with debouncing
@@ -351,17 +363,22 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
     }
 
     // Fallback to web download
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8;' });
-    const link = document.createElement("a");
+    triggerBrowserDownload(new Blob([content], { type: 'text/markdown;charset=utf-8;' }), filename);
+  };
 
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", filename);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const handleDownloadAudio = async () => {
+    if (!activeAsset) return;
+    try {
+      const blob = await getRecording(activeAsset.id);
+      if (!blob) return;
+      const extension = blob.type.includes('mp4') ? 'm4a' : 'webm';
+      const filename = `${session.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_recording.${extension}`;
+      if (isTauri() && await nativeSaveBytes(new Uint8Array(await blob.arrayBuffer()), filename, extension)) return;
+      triggerBrowserDownload(blob, filename);
+    } catch (error) {
+      console.error('Failed to export recording:', error);
+      pushToast({ title: 'Could not export the recording', variant: 'error' });
+    }
   };
   
   const handleAddTag = (e: React.FormEvent) => {
@@ -427,7 +444,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
     try {
         const consumeStream = async (stream: AsyncGenerator<{ textDelta: string; sources?: GroundingSource[] }>) => {
             let currentResponse = '';
-            let sources: GroundingSource[] = [];
+            const sources: GroundingSource[] = [];
 
             updateSession(session.id, { chatHistory: [...newHistory, {role: 'model', content: ''}] });
 
@@ -586,7 +603,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
             setCurrentMatchIndex(-1);
             return;
         }
-        const regex = new RegExp(searchQuery.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'gi');
+        const regex = new RegExp(searchQuery.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&'), 'gi');
         const results = [];
         let match;
         while ((match = regex.exec(editedTranscript)) !== null) {
@@ -735,6 +752,16 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
                             </option>
                         ))}
                     </select>
+                    {activeAssetHasAudio && (
+                        <button
+                            onClick={handleDownloadAudio}
+                            className="flex items-center px-3 py-2 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600"
+                            title="Save the recorded audio for this asset"
+                        >
+                            <DownloadIcon className="w-4 h-4 mr-2" />
+                            Download audio
+                        </button>
+                    )}
                 </div>
                 <div className="flex justify-between items-center mb-4 flex-wrap gap-2 bg-gray-100 dark:bg-gray-900 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
                      <div className="flex items-center space-x-2 flex-wrap gap-2">

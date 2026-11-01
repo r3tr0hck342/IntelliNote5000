@@ -3,9 +3,11 @@ INTELLINOTE5000
 ## Run Locally (macOS + Node 20)
 
 **Prerequisites**
-- Node.js 20.x and npm 10.x (`nvm install 20 && nvm use 20`)
+- Node.js 20.19+ and npm 10.x (`nvm install 20 && nvm use 20`)
 - macOS Sonoma or newer (for desktop and iOS builds)
-- Xcode + CLT, Rust toolchain, `tauri-cli`, CocoaPods (see checklist below)
+- Rust toolchain (1.77.2+). Tauri CLI v2 is installed via npm.
+- macOS/iOS: Xcode + CLT, CocoaPods (see checklist below)
+- Linux desktop builds: `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev`
 
 **Steps**
 1. Install dependencies: `npm install`
@@ -18,7 +20,6 @@ INTELLINOTE5000
 4. Launch `http://localhost:1420`, open **Settings → AI Provider**, choose Gemini or OpenAI, and paste your API key. Keys are stored in secure storage on native builds; browser storage is opt-in and controlled in Settings.
 5. Open **Settings → Transcription Provider** to configure a streaming STT key (Deepgram). This powers real-time, word-by-word transcription with interim results.
 6. Allow microphone access if you plan to use live transcription.
-7. `npm install` is configured with `legacy-peer-deps=true` (see `.npmrc`) so the Capacitor secure storage plugin can coexist with Capacitor 6 until the upstream publishes updated peer constraints.
 
 ### AI Provider Support
 
@@ -32,7 +33,8 @@ INTELLINOTE5000
 - Configure in **Settings → Transcription Provider** or via `.env.local` keys.
 - **Audio format**: PCM 16-bit, mono, 16 kHz (captured via Web Audio and streamed as `linear16` frames).
 - Live lecture sessions store interim and final transcript segments (with utterance IDs when available) plus timestamps, confidence, and speaker labels.
-- The recorder always stores the full audio capture locally; if streaming drops, you can run **Transcribe After Recording** to process the saved audio via Deepgram’s prerecorded API.
+- The recorder saves audio to local storage (IndexedDB) every second, so a crash or closed window keeps what was recorded. If streaming drops, run **Transcribe After Recording** to process the audio via Deepgram’s prerecorded API, or use **Download audio** in the session view to save the file.
+- Sessions are stored in IndexedDB (no ~5 MB browser-storage cap). If a save fails, the app shows an error toast.
 - Reconnect behavior: exponential backoff (up to ~10s) with a capped number of retries; audio capture continues during reconnect attempts.
 
 ### Transcript Import (Production v1)
@@ -83,6 +85,11 @@ This verifies native configuration files, permission strings, and required Capac
 Pull requests and pushes to `main` run linting, type checks, unit tests, a production build, and the release verification script via GitHub Actions. This blocks merges unless the project is package-ready.
 
 ## Packaging / Distribution
+
+See [docs/distribution-roadmap.md](docs/distribution-roadmap.md) for the desktop → mobile → tablet release plan.
+
+### All desktop platforms (CI)
+Push a `v*` tag (or run **Desktop Release** from the Actions tab). `.github/workflows/desktop-release.yml` builds unsigned macOS, Windows, and Linux installers and attaches them to a draft GitHub Release.
 
 ### macOS (Tauri)
 1. Install deps: `npm install`

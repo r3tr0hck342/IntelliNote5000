@@ -43,8 +43,8 @@ interface DiagnosticsBundleOptions {
 }
 
 const getBuildMode = (): string => {
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env?.MODE) {
-    return (import.meta as any).env.MODE;
+  if (typeof import.meta !== 'undefined' && import.meta.env?.MODE) {
+    return import.meta.env.MODE;
   }
   if (typeof process !== 'undefined' && process.env?.NODE_ENV) {
     return process.env.NODE_ENV;
@@ -69,9 +69,9 @@ export const getPlatformInfo = (): PlatformInfo => {
     return { target: 'tauri', userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined };
   }
   const isCapacitor = typeof window !== 'undefined'
-    && !!(window as any).Capacitor
-    && typeof (window as any).Capacitor.isNativePlatform === 'function'
-    && (window as any).Capacitor.isNativePlatform();
+    && !!window.Capacitor
+    && typeof window.Capacitor.isNativePlatform === 'function'
+    && window.Capacitor.isNativePlatform();
   if (isCapacitor) {
     return { target: 'capacitor', userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined };
   }

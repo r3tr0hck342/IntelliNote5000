@@ -1,9 +1,10 @@
 import { Handout } from '../types';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-// Set worker URL for pdfjs
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
+// Bundled locally: the desktop CSP blocks CDNs, and PDF import must work offline.
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 export const parseFile = async (file: File): Promise<Handout | null> => {
     const { name } = file;

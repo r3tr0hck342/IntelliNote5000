@@ -6,15 +6,15 @@ let inMemoryConfig: SttConfig | null = null;
 const setRuntimeCache = (config: SttConfig | null) => {
   if (typeof window === 'undefined') return;
   if (config) {
-    (window as any).__INTELLINOTE_STT_CONFIG = config;
+    window.__INTELLINOTE_STT_CONFIG = config;
   } else {
-    delete (window as any).__INTELLINOTE_STT_CONFIG;
+    delete window.__INTELLINOTE_STT_CONFIG;
   }
 };
 
 export const getCachedSttConfig = (): SttConfig | null => {
   if (typeof window !== 'undefined') {
-    const runtime = (window as any).__INTELLINOTE_STT_CONFIG;
+    const runtime = window.__INTELLINOTE_STT_CONFIG;
     if (runtime && typeof runtime.apiKey === 'string') {
       return runtime;
     }
@@ -51,9 +51,9 @@ export const clearCachedSttConfig = () => {
   setRuntimeCache(null);
 };
 
-const getViteEnv = (): Record<string, any> | undefined => {
+const getViteEnv = (): ImportMetaEnv | undefined => {
   try {
-    return typeof import.meta !== 'undefined' ? (import.meta as any).env : undefined;
+    return typeof import.meta !== 'undefined' ? import.meta.env : undefined;
   } catch {
     return undefined;
   }
@@ -80,7 +80,7 @@ const getEnvFallbackConfig = (): SttConfig | null => {
 
 export const getActiveSttConfig = (): SttConfig | null => {
   if (typeof window !== 'undefined') {
-    const runtime = (window as any).__INTELLINOTE_STT_CONFIG;
+    const runtime = window.__INTELLINOTE_STT_CONFIG;
     if (runtime && typeof runtime.apiKey === 'string') {
       return runtime;
     }

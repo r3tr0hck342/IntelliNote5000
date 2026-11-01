@@ -29,7 +29,7 @@ const buildEndpoint = (config: ApiConfig) => {
     return `${base.replace(/\/$/, '')}/chat/completions`;
 };
 
-const callOpenAi = async (config: ApiConfig, body: Record<string, any>) => {
+const callOpenAi = async (config: ApiConfig, body: Record<string, unknown>) => {
     try {
         const response = await fetch(buildEndpoint(config), {
             method: 'POST',

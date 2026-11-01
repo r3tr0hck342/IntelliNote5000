@@ -7,6 +7,7 @@ import { createStreamingSttProvider, transcribeRecordedAudio } from '../services
 import { buildTranscriptText, createId, finalizeSegment, mergeFinalSegments, upsertInterimSegment } from '../utils/transcript';
 import { logEvent } from '../utils/logger';
 import { pushToast } from '../utils/toastStore';
+import { appendAudioChunk } from '../utils/localDb';
 import { RingBuffer } from '../utils/ringBuffer';
 import { mapSttError } from '../services/stt/errors';
 import type { SttError } from '../services/stt/errors';
@@ -92,6 +93,8 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
         onUnmute: () => void;
     }>>([]);
     const streamInactiveHandlerRef = useRef<(() => void) | null>(null);
+    // startRecording is declared further down; a ref lets earlier callbacks call it without a TDZ crash.
+    const startRecordingRef = useRef<(() => Promise<void>) | null>(null);
 
     const pushTranscriptUpdate = useCallback((segments: TranscriptSegment[], hasFinalUpdate: boolean, audioPath?: string) => {
         const sessionId = activeSessionIdRef.current;
@@ -127,7 +130,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             action: err.retryable
                 ? {
                     label: 'Retry',
-                    onAction: () => startRecording(),
+                    onAction: () => startRecordingRef.current?.(),
                 }
                 : undefined,
         });
@@ -138,7 +141,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             return;
         }
         setConnectionStatus('reconnecting');
-    }, [startRecording]);
+    }, []);
 
     const scheduleReconnect = useCallback(async () => {
         const streamConfig = streamConfigRef.current;
@@ -278,7 +281,9 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             mediaStreamRef.current.getTracks().forEach(track => {
                 track.stop();
             });
-            mediaStreamRef.current.oninactive = null;
+            if (streamInactiveHandlerRef.current) {
+                mediaStreamRef.current.removeEventListener('inactive', streamInactiveHandlerRef.current);
+            }
         }
         mediaTrackHandlersRef.current.forEach(({ track, onEnded, onMute, onUnmute }) => {
             track.removeEventListener('ended', onEnded);
@@ -423,15 +428,28 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                 return { track, onEnded: handleTrackEnded, onMute: handleTrackMuted, onUnmute: handleTrackUnmuted };
             });
             streamInactiveHandlerRef.current = () => handleAudioInterruption(interruptionMessage);
-            mediaStreamRef.current.oninactive = streamInactiveHandlerRef.current;
+            mediaStreamRef.current.addEventListener('inactive', streamInactiveHandlerRef.current);
 
             const mimeTypeCandidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
             const mimeType = mimeTypeCandidates.find(type => MediaRecorder.isTypeSupported(type));
             mediaRecorderRef.current = new MediaRecorder(mediaStreamRef.current, mimeType ? { mimeType } : undefined);
             audioChunksRef.current = [];
+            let audioSaveFailed = false;
             mediaRecorderRef.current.ondataavailable = (event) => {
                 if (event.data.size > 0) {
                     audioChunksRef.current.push(event.data);
+                    // Written every second so a crash or closed window keeps everything recorded so far.
+                    appendAudioChunk(assetId, event.data, mimeType ?? 'audio/webm').catch(saveError => {
+                        logEvent('error', 'Failed to save audio chunk', { message: saveError instanceof Error ? saveError.message : 'Unknown error' });
+                        if (audioSaveFailed) return;
+                        audioSaveFailed = true;
+                        pushToast({
+                            title: 'Audio is not being saved to disk',
+                            description: 'Recording continues in memory. Stop and use "Transcribe After Recording" before closing the app.',
+                            variant: 'error',
+                            durationMs: 0,
+                        });
+                    });
                 }
             };
             mediaRecorderRef.current.onstop = () => {
@@ -439,14 +457,6 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                 recordedAudioRef.current = blob;
                 recordedAudioMimeRef.current = mimeType ?? 'audio/webm';
                 setHasRecordedAudio(blob.size > 0);
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    const base64 = typeof reader.result === 'string' ? reader.result : undefined;
-                    if (base64) {
-                        pushTranscriptUpdate(segmentsRef.current, false, base64);
-                    }
-                };
-                reader.readAsDataURL(blob);
             };
             mediaRecorderRef.current.start(1000);
 
@@ -533,7 +543,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             streamingSessionRef.current = session;
             await session.connect();
             if (!mediaStreamRef.current) return;
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: TARGET_SAMPLE_RATE });
+            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: TARGET_SAMPLE_RATE });
             if (audioContextRef.current.sampleRate !== TARGET_SAMPLE_RATE) {
                 logEvent('warn', 'AudioContext sample rate mismatch', { actual: audioContextRef.current.sampleRate, expected: TARGET_SAMPLE_RATE });
             }
@@ -610,6 +620,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             setConnectionStatus('error');
         }
     };
+    startRecordingRef.current = startRecording;
     
     useEffect(() => {
         return () => {

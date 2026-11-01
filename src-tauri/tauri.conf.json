@@ -2,112 +2,77 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
-    "devPath": "http://localhost:1420",
-    "distDir": "../dist",
-    "withGlobalTauri": true
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420"
   },
-  "package": {
-    "productName": "IntelliNote",
-    "version": "0.1.0"
-  },
-  "tauri": {
-    "allowlist": {
-      "all": false,
-      "shell": {
-        "all": false,
-        "open": true
-      },
-      "fs": {
-        "all": false,
-        "readFile": true,
-        "writeFile": true,
-        "scope": ["$APP/*", "$DOCUMENT/*"]
-      },
-       "protocol": {
-        "all": false,
-        "asset": true,
-        "assetScope": ["$APP/*", "$RESOURCE/*"]
-      },
-       "dialog": {
-        "all": false,
-        "open": true,
-        "save": true
-      },
-      "http": {
-        "all": false,
-        "request": true,
-        "scope": ["https://generativelanguage.googleapis.com/*"]
+  "bundle": {
+    "active": true,
+    "category": "Productivity",
+    "copyright": "Copyright \u00a9 2024 IntelliNote. All rights reserved.",
+    "targets": "all",
+    "externalBin": [],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    },
+    "longDescription": "An intelligent note-taking application that listens to lectures in real-time, organizes notes, and generates study materials to enhance your learning experience.",
+    "macOS": {
+      "bundleIdentifier": "com.intellinote.app",
+      "entitlements": "entitlements.plist",
+      "exceptionDomain": "",
+      "frameworks": [],
+      "hardenedRuntime": true,
+      "providerShortName": null,
+      "signingIdentity": "-",
+      "dmg": {
+        "windowPosition": {
+          "x": 418,
+          "y": 272
+        },
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        },
+        "backgroundColor": "#f2f2f7",
+        "contents": [
+          {
+            "x": 468,
+            "y": 180,
+            "type": "link",
+            "path": "/Applications"
+          },
+          {
+            "x": 192,
+            "y": 180,
+            "type": "file",
+            "path": "IntelliNote.app"
+          }
+        ]
       }
     },
-    "bundle": {
-      "active": true,
-      "category": "Productivity",
-      "copyright": "Copyright © 2024 IntelliNote. All rights reserved.",
+    "resources": [],
+    "shortDescription": "An AI-powered note-taking assistant for lectures.",
+    "linux": {
       "deb": {
         "depends": []
-      },
-      "externalBin": [],
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/icon.icns",
-        "icons/icon.ico"
-      ],
-      "identifier": "com.intellinote.app",
-      "longDescription": "An intelligent note-taking application that listens to lectures in real-time, organizes notes, and generates study materials to enhance your learning experience.",
-      "macOS": {
-        "bundleIdentifier": "com.intellinote.app",
-        "entitlements": "entitlements.plist",
-        "exceptionDomain": "",
-        "frameworks": [],
-        "hardenedRuntime": true,
-        "infoPlist": {
-          "NSMicrophoneUsageDescription": "IntelliNote needs microphone access to record and transcribe lecture audio."
-        },
-        "providerShortName": "ENV:TAURI_MACOS_PROVIDER_SHORT_NAME",
-        "signingIdentity": "ENV:TAURI_MACOS_SIGNING_IDENTITY",
-        "dmg": {
-          "windowPosition": {
-            "x": 418,
-            "y": 272
-          },
-          "windowSize": {
-            "width": 660,
-            "height": 400
-          },
-          "backgroundColor": "#f2f2f7",
-          "contents": [
-            {
-              "x": 468,
-              "y": 180,
-              "type": "link",
-              "path": "/Applications"
-            },
-            {
-              "x": 192,
-              "y": 180,
-              "type": "file",
-              "path": "IntelliNote.app"
-            }
-          ]
-        }
-      },
-      "resources": [],
-      "shortDescription": "An AI-powered note-taking assistant for lectures.",
-      "targets": "all",
-      "windows": {
-        "certificateThumbprint": null,
-        "digestAlgorithm": "sha256",
-        "timestampUrl": ""
       }
-    },
-    "security": {
-      "csp": "default-src 'self'; connect-src https://generativelanguage.googleapis.com https://api.deepgram.com wss://api.deepgram.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://aistudiocdn.com https://esm.sh https://cdn.jsdelivr.net; img-src 'self' data:; media-src 'self' blob:;"
-    },
-    "updater": {
-      "active": false
-    },
+    }
+  },
+  "productName": "IntelliNote",
+  "mainBinaryName": "IntelliNote",
+  "version": "0.1.0",
+  "identifier": "com.intellinote.app",
+  "plugins": {},
+  "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "fullscreen": false,
@@ -116,8 +81,12 @@
         "title": "IntelliNote - AI Lecture Assistant",
         "width": 1280,
         "minWidth": 800,
-        "minHeight": 600
+        "minHeight": 600,
+        "useHttpsScheme": true
       }
-    ]
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost 'self' https://generativelanguage.googleapis.com https://api.openai.com https://api.deepgram.com wss://api.deepgram.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:;"
+    }
   }
 }

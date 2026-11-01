@@ -15,17 +15,25 @@ const buildDeepgramUrl = (config: StreamingSttConfig) => {
   return `wss://api.deepgram.com/v1/listen?${params.toString()}`;
 };
 
-const parseResult = (payload: any): SttInterimResult | null => {
+interface DeepgramWord { word: string; start?: number; end?: number; confidence?: number; speaker?: number | string }
+interface DeepgramAlternative { transcript?: string; confidence?: number; words?: DeepgramWord[]; paragraphs?: { paragraphs?: DeepgramParagraph[] } }
+interface DeepgramParagraph { id?: string | number; text?: string; start?: number; end?: number; confidence?: number; sentences?: { text: string }[]; words?: DeepgramWord[] }
+interface DeepgramStreamPayload { channel?: { alternatives?: DeepgramAlternative[] }; utterance_id?: string; metadata?: { utterance_id?: string } }
+interface DeepgramRecordedPayload { results?: { channels?: { alternatives?: DeepgramAlternative[] }[] } }
+
+const mapWord = (word: DeepgramWord) => ({
+  word: word.word,
+  startMs: word.start ? Math.round(word.start * 1000) : undefined,
+  endMs: word.end ? Math.round(word.end * 1000) : undefined,
+  confidence: word.confidence,
+  speaker: word.speaker?.toString(),
+});
+
+const parseResult = (payload: DeepgramStreamPayload): SttInterimResult | null => {
   if (!payload?.channel?.alternatives?.length) return null;
   const alternative = payload.channel.alternatives[0];
   if (!alternative?.transcript) return null;
-  const words = alternative.words?.map((word: any) => ({
-    word: word.word,
-    startMs: word.start ? Math.round(word.start * 1000) : undefined,
-    endMs: word.end ? Math.round(word.end * 1000) : undefined,
-    confidence: word.confidence,
-    speaker: word.speaker?.toString(),
-  }));
+  const words = alternative.words?.map(mapWord);
   const startMs = words?.[0]?.startMs;
   const endMs = words?.[words.length - 1]?.endMs;
   const utteranceId = payload?.utterance_id ?? payload?.metadata?.utterance_id;
@@ -39,23 +47,17 @@ const parseResult = (payload: any): SttInterimResult | null => {
   };
 };
 
-const parseRecordedTranscript = (payload: any): SttTranscriptResult => {
+const parseRecordedTranscript = (payload: DeepgramRecordedPayload): SttTranscriptResult => {
   const alternative = payload?.results?.channels?.[0]?.alternatives?.[0];
   const transcript = alternative?.transcript ?? '';
   const paragraphs = alternative?.paragraphs?.paragraphs ?? [];
   const segments: SttFinalResult[] = paragraphs.length
-    ? paragraphs.map((paragraph: any) => ({
-        text: paragraph.sentences?.map((sentence: any) => sentence.text).join(' ') ?? paragraph.text ?? '',
+    ? paragraphs.map(paragraph => ({
+        text: paragraph.sentences?.map(sentence => sentence.text).join(' ') ?? paragraph.text ?? '',
         startMs: paragraph.start ? Math.round(paragraph.start * 1000) : undefined,
         endMs: paragraph.end ? Math.round(paragraph.end * 1000) : undefined,
         confidence: paragraph.confidence,
-        words: paragraph.words?.map((word: any) => ({
-          word: word.word,
-          startMs: word.start ? Math.round(word.start * 1000) : undefined,
-          endMs: word.end ? Math.round(word.end * 1000) : undefined,
-          confidence: word.confidence,
-          speaker: word.speaker?.toString(),
-        })),
+        words: paragraph.words?.map(mapWord),
         utteranceId: paragraph.id ? String(paragraph.id) : undefined,
         isFinal: true,
       }))
@@ -64,13 +66,7 @@ const parseRecordedTranscript = (payload: any): SttTranscriptResult => {
           {
             text: transcript,
             confidence: alternative?.confidence,
-            words: alternative?.words?.map((word: any) => ({
-              word: word.word,
-              startMs: word.start ? Math.round(word.start * 1000) : undefined,
-              endMs: word.end ? Math.round(word.end * 1000) : undefined,
-              confidence: word.confidence,
-              speaker: word.speaker?.toString(),
-            })),
+            words: alternative?.words?.map(mapWord),
             isFinal: true,
           },
         ]

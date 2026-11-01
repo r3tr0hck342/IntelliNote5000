@@ -25,7 +25,7 @@ const run = () => {
     assert(metaEntries.length > 0, 'No providers registered.');
 
     REQUIRED_PROVIDER_IDS.forEach(id => {
-        assert(PROVIDER_METADATA[id], `Missing provider metadata for "${id}".`);
+        assert(Boolean(PROVIDER_METADATA[id]), `Missing provider metadata for "${id}".`);
     });
 
     assert(

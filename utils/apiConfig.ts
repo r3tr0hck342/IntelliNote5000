@@ -1,4 +1,6 @@
 import { ApiConfig, ProviderId } from '../types/ai';
+
+export type { ApiConfig };
 import { secureStorage } from './secureStorage';
 
 let inMemoryConfig: ApiConfig | null = null;
@@ -6,15 +8,15 @@ let inMemoryConfig: ApiConfig | null = null;
 const setRuntimeCache = (config: ApiConfig | null) => {
     if (typeof window === 'undefined') return;
     if (config) {
-        (window as any).__INTELLINOTE_API_CONFIG = config;
+        window.__INTELLINOTE_API_CONFIG = config;
     } else {
-        delete (window as any).__INTELLINOTE_API_CONFIG;
+        delete window.__INTELLINOTE_API_CONFIG;
     }
 };
 
 export const getCachedApiConfig = (): ApiConfig | null => {
     if (typeof window !== 'undefined') {
-        const runtime = (window as any).__INTELLINOTE_API_CONFIG;
+        const runtime = window.__INTELLINOTE_API_CONFIG;
         if (runtime && typeof runtime.apiKey === 'string') {
             return runtime;
         }

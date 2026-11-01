@@ -79,7 +79,7 @@ const parseSrtVttSegments = (text: string, assetId: string, createdAt: string): 
       i += 1;
       continue;
     }
-    const timeMatch = line.match(/^((?:\d{1,2}:)?\d{2}:\d{2}(?:[\.,]\d{1,3})?)\s*-->\s*((?:\d{1,2}:)?\d{2}:\d{2}(?:[\.,]\d{1,3})?)/);
+    const timeMatch = line.match(/^((?:\d{1,2}:)?\d{2}:\d{2}(?:[.,]\d{1,3})?)\s*-->\s*((?:\d{1,2}:)?\d{2}:\d{2}(?:[.,]\d{1,3})?)/);
     if (!timeMatch) {
       i += 1;
       continue;
@@ -106,7 +106,7 @@ const parseInlineTimestampSegments = (text: string, assetId: string, createdAt: 
   const segments: TranscriptSegment[] = [];
   let current: { startMs: number; text: string[] } | null = null;
   let hasTimestamp = false;
-  const timestampRegex = /^\s*\[?(\d{1,2}:\d{2}:\d{2}(?:[\.,]\d{1,3})?|\d{1,2}:\d{2}(?:[\.,]\d{1,3})?)\]?\s*(.*)$/;
+  const timestampRegex = /^\s*\[?(\d{1,2}:\d{2}:\d{2}(?:[.,]\d{1,3})?|\d{1,2}:\d{2}(?:[.,]\d{1,3})?)\]?\s*(.*)$/;
 
   const flushCurrent = () => {
     if (current && current.text.length > 0) {

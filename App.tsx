@@ -25,6 +25,7 @@ import { clearAllCredentials } from './utils/credentialCleanup';
 import { logEvent } from './utils/logger';
 import { exportDiagnosticsBundle } from './utils/diagnosticsBundle';
 import { resetAppState } from './utils/appReset';
+import { pushToast } from './utils/toastStore';
 
 const PROVIDERS = Object.values(PROVIDER_METADATA);
 const STT_PROVIDERS = Object.values(STT_PROVIDER_METADATA);
@@ -58,6 +59,8 @@ const App: React.FC = () => {
   const isApiKeyReady = Boolean(apiConfig?.apiKey);
   const isSttKeyReady = Boolean(sttConfig?.apiKey);
   const sessionsRef = useRef<StudySession[]>([]);
+  const sessionsLoadedRef = useRef(false);
+  const persistFailedRef = useRef(false);
   const autoGenerationTrackerRef = useRef<Record<string, { lastRunAt: number; pendingFinals: number }>>({});
   const importPipelineControllersRef = useRef<Record<string, { timeoutId?: number; cancel?: () => void }>>({});
 
@@ -89,16 +92,26 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    try {
-        const { sessions: storedSessions } = loadPersistedSessions();
+    loadPersistedSessions()
+      .then(({ sessions: storedSessions }) => {
+        // Set before setSessions so the save effect never writes the initial empty list over stored data.
+        sessionsLoadedRef.current = true;
         setSessions(storedSessions);
         if (storedSessions.length > 0) {
           logEvent('info', 'Sessions loaded', { count: storedSessions.length });
         }
-    } catch (e) {
-        console.error("Failed to load sessions from localStorage", e);
+      })
+      .catch(e => {
+        // Saving stays disabled so a failed read can't be followed by an empty write.
+        console.error("Failed to load sessions", e);
         logEvent('error', 'Failed to load sessions', { message: e instanceof Error ? e.message : 'Unknown error' });
-    }
+        pushToast({
+          title: 'Could not load your sessions',
+          description: 'Saving is paused to protect existing data. Restart the app; if this keeps happening, export a diagnostics bundle.',
+          variant: 'error',
+          durationMs: 0,
+        });
+      });
   }, []);
 
   useEffect(() => {
@@ -106,12 +119,23 @@ const App: React.FC = () => {
   }, [sessions]);
 
   useEffect(() => {
-    try {
-        persistSessions(sessions);
-    } catch (e) {
-        console.error("Failed to save sessions to localStorage", e);
+    if (!sessionsLoadedRef.current) return;
+    persistSessions(sessions)
+      .then(() => {
+        persistFailedRef.current = false;
+      })
+      .catch(e => {
+        console.error("Failed to save sessions", e);
         logEvent('error', 'Failed to persist sessions', { message: e instanceof Error ? e.message : 'Unknown error' });
-    }
+        if (persistFailedRef.current) return; // one toast per failure streak
+        persistFailedRef.current = true;
+        pushToast({
+          title: 'Changes are not being saved',
+          description: 'Storage is full or unavailable. Free up disk space, then keep the app open so it can retry.',
+          variant: 'error',
+          durationMs: 0,
+        });
+      });
   }, [sessions]);
 
   useEffect(() => {
@@ -344,11 +368,11 @@ const App: React.FC = () => {
           : session
       )
     );
-    const timers = (window as any).__autoGenTimers || {};
+    const timers = window.__autoGenTimers || {};
     if (timers[sessionId]) {
       window.clearTimeout(timers[sessionId]);
     }
-    (window as any).__autoGenTimers = timers;
+    window.__autoGenTimers = timers;
     timers[sessionId] = window.setTimeout(() => {
       const session = sessionsRef.current.find(item => item.id === sessionId);
       if (session) {
@@ -704,7 +728,7 @@ const App: React.FC = () => {
             setCurrentView(AppView.Welcome);
             return null;
         case AppView.Welcome:
-        default:
+        default: {
             const WelcomeView = () => (
                  <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800 text-center p-8">
                     <BrainIcon className="w-24 h-24 text-indigo-500 mb-6" />
@@ -729,6 +753,7 @@ const App: React.FC = () => {
                 )
             }
             return <WelcomeView />;
+        }
     }
   };
 

@@ -37,7 +37,9 @@ export const logEvent = (level: LogLevel, message: string, data?: Record<string,
 export const subscribeToLogs = (listener: (items: LogEntry[]) => void) => {
   listeners.add(listener);
   listener([...logs]);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 };
 
 export const getLogs = () => [...logs];

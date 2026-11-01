@@ -14,7 +14,7 @@ interface ResetOptions {
 }
 
 export const resetAppState = async ({ includeSecureStorage = false }: ResetOptions = {}) => {
-  clearPersistedSessions();
+  await clearPersistedSessions();
   clearAutoGenerationConfig();
   clearDiagnosticsPreference();
   clearCredentialFallbackPreference();

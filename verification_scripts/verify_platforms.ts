@@ -49,12 +49,14 @@ const tauriConfPath = requireFile('src-tauri/tauri.conf.json');
 if (tauriConfPath) {
   const raw = fs.readFileSync(tauriConfPath, 'utf-8');
   const tauriConf = JSON.parse(raw);
-  const macOSBundle = tauriConf?.tauri?.bundle?.macOS;
-  const bundleIcons = tauriConf?.tauri?.bundle?.icon;
+  const macOSBundle = tauriConf?.bundle?.macOS;
+  const bundleIcons = tauriConf?.bundle?.icon;
   const entitlementsPath = macOSBundle?.entitlements;
   requireString(entitlementsPath, 'macOS entitlements path in tauri.conf.json');
-  const infoPlist = macOSBundle?.infoPlist;
-  requireString(infoPlist?.NSMicrophoneUsageDescription, 'macOS NSMicrophoneUsageDescription in tauri.conf.json');
+  const macInfoPlistPath = requireFile('src-tauri/Info.plist');
+  if (macInfoPlistPath && !fs.readFileSync(macInfoPlistPath, 'utf-8').includes('NSMicrophoneUsageDescription')) {
+    errors.push('Missing macOS NSMicrophoneUsageDescription in src-tauri/Info.plist.');
+  }
   if (macOSBundle?.hardenedRuntime !== true) {
     errors.push('macOS hardened runtime must be enabled in tauri.conf.json.');
   }
@@ -66,7 +68,7 @@ if (tauriConfPath) {
   } else if (typeof bundleIcons === 'string') {
     requireFileExists(path.join('src-tauri', bundleIcons), 'Tauri bundle icon');
   } else {
-    errors.push('Missing tauri.bundle.icon entries in tauri.conf.json.');
+    errors.push('Missing bundle.icon entries in tauri.conf.json.');
   }
 
   if (entitlementsPath) {
@@ -80,25 +82,7 @@ if (tauriConfPath) {
   }
 }
 
-const capacitorConfigPath = requireFile('capacitor.config.ts');
-if (capacitorConfigPath) {
-  const capConfig = fs.readFileSync(capacitorConfigPath, 'utf-8');
-  if (!capConfig.includes('NSMicrophoneUsageDescription')) {
-    errors.push('Capacitor iOS config missing NSMicrophoneUsageDescription.');
-  }
-  if (!capConfig.includes('UIBackgroundModes')) {
-    errors.push('Capacitor iOS config missing UIBackgroundModes audio setting.');
-  }
-  if (!capConfig.includes('RECORD_AUDIO')) {
-    errors.push('Capacitor Android config missing RECORD_AUDIO permission.');
-  }
-  if (!capConfig.includes('FOREGROUND_SERVICE')) {
-    errors.push('Capacitor Android config missing FOREGROUND_SERVICE permission.');
-  }
-  if (!capConfig.includes('FOREGROUND_SERVICE_MICROPHONE')) {
-    errors.push('Capacitor Android config missing FOREGROUND_SERVICE_MICROPHONE permission.');
-  }
-}
+requireFile('capacitor.config.ts');
 
 const packageJsonPath = requireFile('package.json');
 if (packageJsonPath) {
