@@ -46,4 +46,7 @@ jobs:
         with:
           workspaces: src-tauri
       - name: Cargo check
-        run: cargo check --manifest-path src-tauri/Cargo.toml --locked
+        # generate_context! requires frontendDist to exist; the web build is checked in release-gate.
+        run: |
+          mkdir -p dist
+          cargo check --manifest-path src-tauri/Cargo.toml --locked

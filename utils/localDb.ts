@@ -49,7 +49,7 @@ const openDb = (): Promise<IDBDatabase> => {
       throw error;
     });
     // Ask the browser not to evict our data under storage pressure (no-op where unsupported).
-    void navigator.storage?.persist?.().catch(() => undefined);
+    if (typeof navigator !== 'undefined') void navigator.storage?.persist?.().catch(() => undefined);
   }
   return dbPromise;
 };

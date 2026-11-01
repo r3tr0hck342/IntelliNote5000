@@ -25,9 +25,7 @@
     },
     "longDescription": "An intelligent note-taking application that listens to lectures in real-time, organizes notes, and generates study materials to enhance your learning experience.",
     "macOS": {
-      "bundleIdentifier": "com.intellinote.app",
       "entitlements": "entitlements.plist",
-      "exceptionDomain": "",
       "frameworks": [],
       "hardenedRuntime": true,
       "providerShortName": null,
@@ -41,21 +39,14 @@
           "width": 660,
           "height": 400
         },
-        "backgroundColor": "#f2f2f7",
-        "contents": [
-          {
-            "x": 468,
-            "y": 180,
-            "type": "link",
-            "path": "/Applications"
-          },
-          {
-            "x": 192,
-            "y": 180,
-            "type": "file",
-            "path": "IntelliNote.app"
-          }
-        ]
+        "appPosition": {
+          "x": 192,
+          "y": 180
+        },
+        "applicationFolderPosition": {
+          "x": 468,
+          "y": 180
+        }
       }
     },
     "resources": [],
