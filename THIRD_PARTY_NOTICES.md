@@ -28,6 +28,8 @@ Models are fetched from pinned URLs under `https://github.com/k2-fsa/sherpa-onnx
 | tar | 0.4.46 | MIT OR Apache-2.0 |
 | bzip2 | 0.6.1 | MIT OR Apache-2.0 |
 | zod | 4.6.7 | MIT |
+| sysinfo | 0.40.1 | MIT |
+| starship-battery | 0.12.0 | ISC |
 
 ## Planned (later phases, not yet included)
 

@@ -36,6 +36,7 @@ const invoke = async <T,>(command: string, args?: Record<string, unknown>) =>
 const RECORD_ONLY_TEXT: Record<string, string> = {
   models_missing: 'Speech models are not installed: recording audio only. It will be transcribed after you stop.',
   falling_behind: 'This computer could not keep up with live text: recording continues, and the transcript is produced after you stop.',
+  below_floor: 'This computer is too slow for live text: recording audio only. The full transcript is produced after you stop.',
   recognizer_stopped: 'Live transcription stopped: recording continues, and the transcript is produced after you stop.',
 };
 
@@ -56,6 +57,7 @@ const NativeLiveRecorder: React.FC<Props> = ({ sessions, onCreateSession, onCrea
   const [liveModelsMissing, setLiveModelsMissing] = useState(false);
   const [download, setDownload] = useState<{ done: number; total: number } | null>(null);
   const [finalizing, setFinalizing] = useState<{ processed: number; total: number } | null>(null);
+  const [tier, setTier] = useState<string | null>(null);
 
   const ids = useRef<{ sessionId: string; assetId: string } | null>(null);
   const segmentsRef = useRef<TranscriptSegment[]>([]);
@@ -127,6 +129,13 @@ const NativeLiveRecorder: React.FC<Props> = ({ sessions, onCreateSession, onCrea
   }, [handleEvent]);
 
   // Reattach to a recording that survived a reload, and check which models are installed.
+  // One-time ~10 s benchmark (cached afterwards) picks live vs record-only for this machine.
+  useEffect(() => {
+    invoke<{ tier: string } | null>('transcription_tier')
+      .then(result => setTier(result?.tier ?? null))
+      .catch(() => setTier(null));
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -291,6 +300,14 @@ const NativeLiveRecorder: React.FC<Props> = ({ sessions, onCreateSession, onCrea
           <option value="system">System audio (online lecture)</option>
         </select>
       </div>
+
+      {tier && !recording && (
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          {tier === 'below-floor'
+            ? 'This computer records first and transcribes after you stop.'
+            : `Live text on this computer: ${tier === 'high' ? 'fast' : 'standard'}.`}
+        </p>
+      )}
 
       <button
         onClick={recording ? handleStop : handleStart}

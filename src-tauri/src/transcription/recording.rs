@@ -347,10 +347,14 @@ pub fn start(
 
     let events: EventSink = Arc::new(Mutex::new(Some(channel)));
     let record_only = Arc::new(AtomicBool::new(false));
-    let asr = start_asr(&app_data.join("models"), &events, &record_only);
+    // Below-floor machines record only: steady audio beats lagging live text, and the final
+    // pass still produces the transcript after stopping.
+    let below_floor = super::tier::cached_tier(app_data) == Some(super::tier::Tier::BelowFloor);
+    let asr = if below_floor { None } else { start_asr(&app_data.join("models"), &events, &record_only) };
     if asr.is_none() {
         record_only.store(true, Ordering::SeqCst);
-        emit(&events, json!({ "type": "recordOnly", "reason": "models_missing" }));
+        let reason = if below_floor { "below_floor" } else { "models_missing" };
+        emit(&events, json!({ "type": "recordOnly", "reason": reason }));
     }
 
     let (sender, receiver) = mpsc::channel();
@@ -419,7 +423,7 @@ pub fn finalize(app_data: &Path, asset_id: &str, key: RecordingKey, mut on_event
         "model": { "encoder": pinned(PARAKEET_ID, "encoder")?, "decoder": pinned(PARAKEET_ID, "decoder")?,
                    "joiner": pinned(PARAKEET_ID, "joiner")?, "tokens": pinned(PARAKEET_ID, "tokens")? },
         "vad": pinned(VAD_ID, "model")?,
-        "numThreads": std::thread::available_parallelism().map(|n| n.get().clamp(1, 4) as i32).unwrap_or(2),
+        "numThreads": super::tier::final_pass_threads(),
     });
     let total_sec = manifest.total_samples as f64 / SAMPLE_RATE as f64;
     let files: Vec<PathBuf> = manifest.segments.iter().map(|segment| dir.join(&segment.file)).collect();
