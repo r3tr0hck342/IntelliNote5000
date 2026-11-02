@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod secure_storage;
+mod transcription;
 
 use tauri::webview::{PermissionKind, PermissionResponse};
 
@@ -35,7 +36,10 @@ fn main() {
             secure_storage::secure_clear_api_config,
             secure_storage::secure_save_stt_config,
             secure_storage::secure_load_stt_config,
-            secure_storage::secure_clear_stt_config
+            secure_storage::secure_clear_stt_config,
+            transcription::commands::transcription_models_status,
+            transcription::commands::transcription_install_models,
+            transcription::commands::transcription_pick_and_transcribe
         ])
         .run(tauri::generate_context!())
         .expect("error while running IntelliNote desktop application");

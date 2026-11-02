@@ -17,6 +17,7 @@ import { SttConfig } from './types/stt';
 import { loadSttConfig, persistSttConfig, clearStoredSttConfig } from './utils/transcriptionConfig';
 import { STT_PROVIDER_METADATA, isSttConfigReady } from './services/stt';
 import { buildTranscriptText, createId, normalizeImportedTranscript } from './utils/transcript';
+import { toTranscriptSegments, type Transcript } from './services/transcription/schema';
 import { loadPersistedSessions, persistSessions } from './utils/sessionStorage';
 import { deleteRecording } from './utils/localDb';
 import { loadDiagnosticsPreference, persistDiagnosticsPreference } from './utils/diagnosticsConfig';
@@ -527,12 +528,14 @@ const App: React.FC = () => {
     if(isMobile) setIsSidebarOpen(false);
   };
 
-  const handleCreateLectureFromFile = useCallback((data: { title: string; transcript: string; handouts: Handout[]; sessionId?: string; onProgress?: (progress: ImportPipelineProgress) => void }) => {
+  const handleCreateLectureFromFile = useCallback((data: { title: string; transcript: string; handouts: Handout[]; sessionId?: string; transcriptData?: Transcript; onProgress?: (progress: ImportPipelineProgress) => void }) => {
     const now = new Date();
     const sessionId = data.sessionId || handleCreateSession(data.title, '');
     const assetId = createId('asset');
     const createdAt = now.toISOString();
-    const segments = normalizeImportedTranscript(data.transcript, assetId, createdAt);
+    const segments = data.transcriptData
+      ? toTranscriptSegments(data.transcriptData, assetId, createdAt)
+      : normalizeImportedTranscript(data.transcript, assetId, createdAt);
     const asset: LectureAsset = {
       id: assetId,
       sessionId,
@@ -540,7 +543,7 @@ const App: React.FC = () => {
       transcriptText: buildTranscriptText(segments),
       transcriptPath: undefined,
       audioPath: undefined,
-      language: 'en-US',
+      language: data.transcriptData?.language ?? 'en-US',
       createdAt,
       segments,
     };

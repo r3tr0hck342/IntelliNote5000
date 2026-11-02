@@ -24,6 +24,8 @@ import { parseFlashcards, parseTags, resolveModel } from '../services/providers/
 import { isSttConfigReady } from '../services/stt/index.ts';
 import { createWhisperProvider, encodeWav, toSegments, toWhisperLanguage } from '../services/stt/whisperProvider.ts';
 import { assertSecureEndpoint, httpFetch } from '../utils/http.ts';
+import { parseTranscript, toTranscriptSegments } from '../services/transcription/schema.ts';
+import { getTranscriptText } from '../services/aiPrompts.ts';
 import { GenerationMode } from '../types.ts';
 
 const testTranscriptReconciliation = () => {
@@ -443,6 +445,38 @@ const testWhisperProvider = async () => {
   );
 };
 
+const testTranscriptSchema = () => {
+  const valid = {
+    engine: 'sherpa-onnx',
+    modelVersion: 'parakeet-tdt-0.6b-v3-int8@sherpa-onnx-2.0.1',
+    language: 'auto',
+    segments: [
+      { id: 'seg-0', start: 0.07, end: 3.84, text: 'Ask not what your country can do for you.', isFinal: true,
+        words: [{ w: 'Ask', start: 0.07, end: 0.47 }, { w: 'not', start: 0.47, end: 0.63, conf: 0.9 }] },
+      { id: 'seg-1', start: 4, end: 4.5, text: '   ', isFinal: true, words: [] },
+    ],
+  };
+  const transcript = parseTranscript(valid);
+
+  const segments = toTranscriptSegments(transcript, 'asset-1', '2026-11-01T00:00:00.000Z');
+  assert.equal(segments.length, 1, 'Blank segments are dropped');
+  assert.equal(segments[0].startMs, 70);
+  assert.equal(segments[0].endMs, 3840);
+  assert.deepEqual(segments[0].words, [{ w: 'Ask', startMs: 70, endMs: 470 }, { w: 'not', startMs: 470, endMs: 630, conf: 0.9 }]);
+  assert.equal(segments[0].engine, 'sherpa-onnx');
+  assert.equal(segments[0].assetId, 'asset-1');
+  // The notes pipeline consumes the result without knowing which engine produced it.
+  assert.equal(getTranscriptText(segments), 'Ask not what your country can do for you.');
+
+  const bad = (patch: Record<string, unknown>) => ({ ...valid, segments: [{ ...valid.segments[0], ...patch }] });
+  assert.throws(() => parseTranscript(bad({ start: -1 })), 'negative time');
+  assert.throws(() => parseTranscript(bad({ start: 5, end: 1 })), 'end before start');
+  assert.throws(() => parseTranscript(bad({ text: 42 })), 'non-string text');
+  assert.throws(() => parseTranscript(bad({ words: [{ w: 'x', start: 0, end: 1, conf: 2 }] })), 'confidence above 1');
+  assert.throws(() => parseTranscript({ ...valid, engine: '' }), 'empty engine');
+  assert.throws(() => parseTranscript({ segments: [] }), 'missing fields');
+};
+
 const run = async () => {
   testTranscriptReconciliation();
   testSessionMigration();
@@ -458,6 +492,7 @@ const run = async () => {
   await testAnthropicProvider();
   await testWhisperProvider();
   await testEndpointSafetyAndWhisperParsing();
+  testTranscriptSchema();
   console.log('unit.test.ts: all tests passed');
 };
 
