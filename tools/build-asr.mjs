@@ -47,8 +47,11 @@ const dest = path.join(destDir, `intellinote-asr-${target}${exe}`);
 
 if (target === 'universal-apple-darwin') {
   // sherpa-onnx ships per-arch macOS libraries only, so build both and merge them.
-  const parts = ['aarch64-apple-darwin', 'x86_64-apple-darwin'].map(buildFor);
+  const arches = ['aarch64-apple-darwin', 'x86_64-apple-darwin'];
+  const parts = arches.map(buildFor);
   run('lipo', ['-create', '-output', dest, ...parts]);
+  // Tauri compiles the app once per arch, and each compile checks for its own per-arch sidecar.
+  arches.forEach((arch, i) => copyFileSync(parts[i], path.join(destDir, `intellinote-asr-${arch}`)));
 } else {
   copyFileSync(buildFor(target), dest);
 }
