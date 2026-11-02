@@ -123,7 +123,7 @@ Set `VITE_API_KEY`, `VITE_AI_PROVIDER`, and `VITE_AI_BASE_URL`, plus `VITE_STT_A
 npm run start-desktop  # Tauri dev window
 ```
 
-On Linux, first install: `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev`
+On Linux, first install: `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev libasound2-dev`
 
 ---
 

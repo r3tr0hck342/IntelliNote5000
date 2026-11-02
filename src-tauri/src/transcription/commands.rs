@@ -4,16 +4,18 @@
 
 use super::catalog::{self, catalog, PARAKEET_ID, VAD_ID};
 use super::models::{self, ModelError};
+use super::recording::{self, RecordingState, Source};
 use super::sidecar;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 
-/// Models needed for file transcription in Phase 1.
+/// Models needed for file transcription.
 const REQUIRED_MODELS: [&str; 2] = [PARAKEET_ID, VAD_ID];
+const KNOWN_ROLES: [&str; 3] = ["final", "vad", "live"];
 const MEDIA_EXTENSIONS: [&str; 13] = ["wav", "mp3", "m4a", "mp4", "aac", "flac", "ogg", "oga", "webm", "mkv", "mov", "opus", "caf"];
 
 #[derive(Serialize)]
@@ -34,9 +36,9 @@ fn models_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
 #[tauri::command]
 pub fn transcription_models_status<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ModelStatus>, String> {
     let dir = models_dir(&app)?;
-    Ok(REQUIRED_MODELS
+    Ok(catalog()
+        .models
         .iter()
-        .filter_map(|id| catalog::model(id).map(|entry| (id, entry)))
         .map(|(id, entry)| ModelStatus {
             id: id.to_string(),
             role: entry.role.clone(),
@@ -48,12 +50,19 @@ pub fn transcription_models_status<R: Runtime>(app: AppHandle<R>) -> Result<Vec<
         .collect())
 }
 
-/// Downloads and installs every missing required model, reporting byte progress.
+/// Downloads and installs every missing model with one of `roles`, reporting byte progress.
 #[tauri::command]
-pub async fn transcription_install_models<R: Runtime>(app: AppHandle<R>, on_event: Channel<Value>) -> Result<(), String> {
+pub async fn transcription_install_models<R: Runtime>(
+    app: AppHandle<R>,
+    roles: Vec<String>,
+    on_event: Channel<Value>,
+) -> Result<(), String> {
+    if roles.is_empty() || roles.iter().any(|role| !KNOWN_ROLES.contains(&role.as_str())) {
+        return Err("invalid_roles".into());
+    }
     let dir = models_dir(&app)?;
-    for id in REQUIRED_MODELS {
-        let entry = catalog::model(id).ok_or("unknown_model")?;
+    for (id, entry) in catalog().models.iter().filter(|(_, entry)| roles.contains(&entry.role)) {
+        let id = id.as_str();
         if models::is_installed(&dir, id, entry) {
             continue;
         }
@@ -156,4 +165,71 @@ pub async fn transcription_pick_and_transcribe<R: Runtime>(
     .await
     .map_err(|_| "worker_failed")??;
     Ok(Some(transcript))
+}
+
+fn app_data<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    app.path().app_data_dir().map_err(|_| "no_app_data_dir".to_string())
+}
+
+/// Starts native capture into the encrypted archive, with live recognition when models are present.
+#[tauri::command]
+pub fn recording_start<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, RecordingState>,
+    session_id: String,
+    asset_id: String,
+    source: String,
+    on_event: Channel<Value>,
+) -> Result<(), String> {
+    let source = match source.as_str() {
+        "mic" => Source::Mic,
+        "system" => Source::System,
+        _ => return Err("invalid_source".into()),
+    };
+    let mut active = state.0.lock().map_err(|_| "state_poisoned")?;
+    if active.is_some() {
+        return Err("already_recording".into());
+    }
+    *active = Some(recording::start(&app_data(&app)?, session_id, asset_id, source, on_event)?);
+    Ok(())
+}
+
+/// Stops capture; resolves once the archive is closed and the live pass has flushed.
+#[tauri::command]
+pub async fn recording_stop(state: State<'_, RecordingState>) -> Result<(), String> {
+    let active = state.0.lock().map_err(|_| "state_poisoned")?.take();
+    if let Some(active) = active {
+        tauri::async_runtime::spawn_blocking(move || active.stop()).await.map_err(|_| "worker_failed")?;
+    }
+    Ok(())
+}
+
+/// Lets a reloaded webview find a recording that is still running.
+#[tauri::command]
+pub fn recording_status(state: State<'_, RecordingState>) -> Result<Value, String> {
+    let active = state.0.lock().map_err(|_| "state_poisoned")?;
+    Ok(match active.as_ref() {
+        Some(rec) => json!({
+            "active": true,
+            "sessionId": rec.session_id,
+            "assetId": rec.asset_id,
+            "source": if rec.source == Source::System { "system" } else { "mic" },
+            "startedAtMs": rec.started_at_ms,
+            "recordOnly": rec.record_only.load(std::sync::atomic::Ordering::SeqCst),
+        }),
+        None => json!({ "active": false }),
+    })
+}
+
+/// Re-routes a running recording's events to a new channel (after a webview reload).
+#[tauri::command]
+pub fn recording_attach(state: State<'_, RecordingState>, on_event: Channel<Value>) -> Result<bool, String> {
+    let active = state.0.lock().map_err(|_| "state_poisoned")?;
+    match active.as_ref() {
+        Some(rec) => {
+            *rec.events.lock().map_err(|_| "state_poisoned")? = Some(on_event);
+            Ok(true)
+        }
+        None => Ok(false),
+    }
 }

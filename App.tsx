@@ -2,6 +2,8 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import MainPanel from './components/MainPanel';
 import LiveNoteTaker from './components/LiveNoteTaker';
+import NativeLiveRecorder from './components/NativeLiveRecorder';
+import { isTauri } from './utils/native';
 import FileUploadModal from './components/FileUploadModal';
 import SettingsModal from './components/SettingsModal';
 import ToastViewport from './components/ToastViewport';
@@ -58,6 +60,8 @@ const App: React.FC = () => {
   const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(loadDiagnosticsPreference());
   const [autoGenerationConfig, setAutoGenerationConfig] = useState(loadAutoGenerationConfig());
   const [credentialFallbackEnabled, setCredentialFallbackEnabled] = useState(getCredentialFallbackPreference());
+  // Desktop records on-device by default; cloud transcription is an explicit opt-in.
+  const [useCloudLive, setUseCloudLive] = useState(() => !isTauri() || localStorage.getItem('intellinote-live-engine') === 'cloud');
   const isApiKeyReady = isApiConfigReady(apiConfig);
   const isSttKeyReady = isSttConfigReady(sttConfig);
   const sessionsRef = useRef<StudySession[]>([]);
@@ -728,6 +732,17 @@ const App: React.FC = () => {
   const renderMainContent = () => {
     switch(currentView) {
         case AppView.Live:
+            if (!useCloudLive) {
+                return (
+                    <NativeLiveRecorder
+                        sessions={sessions}
+                        onCreateSession={handleCreateSession}
+                        onCreateLiveAsset={handleCreateAsset}
+                        onTranscriptUpdate={handleTranscriptUpdate}
+                        onUseCloud={() => { localStorage.setItem('intellinote-live-engine', 'cloud'); setUseCloudLive(true); }}
+                    />
+                );
+            }
             return (
                 <LiveNoteTaker
                     isSttReady={isSttKeyReady}

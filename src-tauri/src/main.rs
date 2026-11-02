@@ -17,6 +17,7 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
+        .manage(transcription::recording::RecordingState::default())
         // Recording is the core feature. Without this the webview's default applies, which
         // denies microphone access on Linux. macOS still shows its system prompt.
         .on_permission_request(|_, kind| match kind {
@@ -39,7 +40,11 @@ fn main() {
             secure_storage::secure_clear_stt_config,
             transcription::commands::transcription_models_status,
             transcription::commands::transcription_install_models,
-            transcription::commands::transcription_pick_and_transcribe
+            transcription::commands::transcription_pick_and_transcribe,
+            transcription::commands::recording_start,
+            transcription::commands::recording_stop,
+            transcription::commands::recording_status,
+            transcription::commands::recording_attach
         ])
         .run(tauri::generate_context!())
         .expect("error while running IntelliNote desktop application");

@@ -20,6 +20,7 @@ tauri-plugin-http = "=2.8.3"
 sha2 = "=0.10.9"
 tar = "=0.4.46"
 bzip2 = "=0.6.1"
+cpal = "=0.18.2"
 reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls"] }
 flacenc = { version = "=0.5.1", default-features = false }
 aes-gcm = "=0.10.3"
@@ -29,4 +30,6 @@ default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# Pure-Rust PulseAudio client: exposes "Monitor of …" sources for system-audio capture (PipeWire too).
+cpal = { version = "=0.18.2", features = ["pulseaudio"] }
 webkit2gtk = { version = "2.0", features = ["v2_40"] }

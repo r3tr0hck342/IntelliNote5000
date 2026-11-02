@@ -126,6 +126,7 @@ impl ArchiveWriter {
     }
 }
 
+#[allow(dead_code)] // read back by the final pass (Phase 3)
 pub fn read_manifest(dir: &Path) -> io::Result<Manifest> {
     serde_json::from_slice(&fs::read(dir.join("manifest.json"))?).map_err(io::Error::other)
 }

@@ -6,4 +6,5 @@ pub mod catalog;
 pub mod commands;
 pub mod crypto;
 pub mod models;
+pub mod recording;
 pub mod sidecar;
