@@ -1,7 +1,7 @@
 {
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run build:asr && npm run dev",
+    "beforeBuildCommand": "npm run build:asr && npm run build",
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420"
   },
@@ -10,7 +10,7 @@
     "category": "Productivity",
     "copyright": "Copyright \u00a9 2024 IntelliNote. All rights reserved.",
     "targets": "all",
-    "externalBin": [],
+    "externalBin": ["binaries/intellinote-asr"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

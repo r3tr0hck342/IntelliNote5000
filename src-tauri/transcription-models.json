@@ -1,0 +1,33 @@
+{
+  "_comment": "Pinned on-device models. archiveSha256 values are GitHub's published release-asset digests (gh api repos/k2-fsa/sherpa-onnx/releases/tags/asr-models); file sha256 values were computed from those verified archives. Changing anything here must go through the golden-audio WER test.",
+  "sherpaOnnxVersion": "2.0.1",
+  "models": {
+    "parakeet-tdt-0.6b-v3-int8": {
+      "role": "final",
+      "license": "CC-BY-4.0",
+      "attribution": "NVIDIA parakeet-tdt-0.6b-v3, converted by the sherpa-onnx project",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
+      "archiveBytes": 487170055,
+      "archiveSha256": "5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf",
+      "archiveRoot": "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
+      "files": {
+        "encoder": { "name": "encoder.int8.onnx", "sha256": "acfc2b4456377e15d04f0243af540b7fe7c992f8d898d751cf134c3a55fd2247" },
+        "decoder": { "name": "decoder.int8.onnx", "sha256": "179e50c43d1a9de79c8a24149a2f9bac6eb5981823f2a2ed88d655b24248db4e" },
+        "joiner": { "name": "joiner.int8.onnx", "sha256": "3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3" },
+        "tokens": { "name": "tokens.txt", "sha256": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d" }
+      }
+    },
+    "silero-vad": {
+      "role": "vad",
+      "license": "MIT",
+      "attribution": "Silero VAD (snakers4/silero-vad)",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+      "archiveBytes": 643854,
+      "archiveSha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
+      "archiveRoot": null,
+      "files": {
+        "model": { "name": "silero_vad.onnx", "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6" }
+      }
+    }
+  }
+}

@@ -8,6 +8,13 @@ export interface Handout {
     content: string;
 }
 
+export interface TranscriptWord {
+    w: string;
+    startMs: number;
+    endMs: number;
+    conf?: number;
+}
+
 export interface TranscriptSegment {
     id: string;
     assetId: string;
@@ -19,6 +26,11 @@ export interface TranscriptSegment {
     speaker?: string;
     utteranceId?: string;
     createdAt: string;
+    /** Word timings from engines that provide them (on-device engine). */
+    words?: TranscriptWord[];
+    /** Which engine/model produced the segment, e.g. "sherpa-onnx" / "parakeet-tdt-0.6b-v3-int8@sherpa-onnx-2.0.1". */
+    engine?: string;
+    modelVersion?: string;
 }
 
 export interface LegacyTranscriptSegment {
@@ -111,4 +123,4 @@ export interface PersistedSessions {
   sessions: StudySession[];
 }
 
-export const SESSION_SCHEMA_VERSION = 1;
+export const SESSION_SCHEMA_VERSION = 2;

@@ -1,0 +1,46 @@
+name: Transcription models
+
+# Golden-audio WER gate for the on-device engine. Runs the real sidecar on the real models, so a
+# sherpa-onnx or model bump that silently changes decoding fails here. Kept out of the main CI job
+# because it downloads ~490 MB (cached by the catalog's hash).
+on:
+  pull_request:
+    paths:
+      - 'src-tauri/asr/**'
+      - 'src-tauri/transcription-models.json'
+      - 'tools/fetch-test-models.mjs'
+      - '.github/workflows/transcription-models.yml'
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden-wer:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: src-tauri/asr
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 20
+      - name: Cache models
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/intellinote-models
+          key: transcription-models-${{ hashFiles('src-tauri/transcription-models.json') }}
+      - name: Fetch and verify models
+        run: node tools/fetch-test-models.mjs ~/intellinote-models
+      - name: Golden WER
+        env:
+          INTELLINOTE_MODELS_DIR: /home/runner/intellinote-models
+        run: cargo test --release --locked --manifest-path src-tauri/asr/Cargo.toml --test golden -- --ignored

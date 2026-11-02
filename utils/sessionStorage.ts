@@ -6,7 +6,8 @@ const STORAGE_KEY = 'intellinote-sessions';
 const LEGACY_KEY = 'intellinote-lectures';
 const IDB_SESSIONS_KEY = 'sessions';
 
-const CURRENT_SCHEMA_VERSION = 1;
+// v2 adds optional word timings/engine fields to segments; v1 data needs no rewrite.
+const CURRENT_SCHEMA_VERSION = 2;
 
 const isString = (value: unknown): value is string => typeof value === 'string';
 const isArray = (value: unknown): value is unknown[] => Array.isArray(value);

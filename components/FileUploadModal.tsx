@@ -1,8 +1,17 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Handout, StudySession } from '../types';
-import { UploadIcon, FileTextIcon, XIcon } from './icons';
+import { UploadIcon, FileTextIcon, XIcon, MicIcon } from './icons';
 import { parseFile } from '../utils/fileParser';
 import { estimateTranscriptStats, normalizeTranscriptText } from '../utils/transcript';
+import { isTauri } from '../utils/native';
+import { localEngine, describeTranscriptionError } from '../services/transcription/localEngine';
+import type { Transcript } from '../services/transcription/schema';
+import type { TranscriptionProgress } from '../services/transcription/engine';
+
+type DeviceStatus = 'checking' | 'unavailable' | 'needs-models' | 'downloading' | 'ready' | 'transcribing';
+
+const formatMb = (bytes: number) => `${Math.round(bytes / 1_000_000)} MB`;
+const formatClock = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
 
 type ImportPipelineStage = 'notes' | 'study-guide' | 'test-questions' | 'flashcards' | 'tags';
 type ImportPipelineStatus = 'queued' | 'running' | 'success' | 'error' | 'cancelled';
@@ -20,6 +29,8 @@ interface FileUploadModalProps {
     transcript: string;
     handouts: Handout[];
     sessionId?: string;
+    /** Set when the text came from on-device transcription: keeps word timings and engine info. */
+    transcriptData?: Transcript;
     onProgress?: (progress: ImportPipelineProgress) => void;
   }) => { cancel: () => void; done: Promise<void> };
   sessions: StudySession[];
@@ -44,6 +55,54 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
   });
   const [importError, setImportError] = useState<string | null>(null);
   const [importComplete, setImportComplete] = useState(false);
+  const [deviceStatus, setDeviceStatus] = useState<DeviceStatus>(isTauri() ? 'checking' : 'unavailable');
+  const [modelsBytes, setModelsBytes] = useState(0);
+  const [downloadProgress, setDownloadProgress] = useState({ done: 0, total: 0 });
+  const [transcribeProgress, setTranscribeProgress] = useState<TranscriptionProgress | null>(null);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
+  const [deviceTranscript, setDeviceTranscript] = useState<Transcript | null>(null);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    localEngine.capabilities()
+      .then(caps => {
+        const missing = caps.models.filter(model => !model.installed);
+        setModelsBytes(missing.reduce((sum, model) => sum + model.downloadBytes, 0));
+        setDeviceStatus(missing.length > 0 ? 'needs-models' : 'ready');
+      })
+      .catch(() => setDeviceStatus('unavailable'));
+  }, []);
+
+  const handleDownloadModels = async () => {
+    setDeviceError(null);
+    setDeviceStatus('downloading');
+    try {
+      await localEngine.installModels((done, total) => setDownloadProgress({ done, total }));
+      setDeviceStatus('ready');
+    } catch (error) {
+      setDeviceError(describeTranscriptionError(String(error)));
+      setDeviceStatus('needs-models');
+    }
+  };
+
+  const handleTranscribeOnDevice = async () => {
+    setDeviceError(null);
+    setDeviceStatus('transcribing');
+    setTranscribeProgress(null);
+    try {
+      const result = await localEngine.transcribeFile({ kind: 'picker' }, { language: 'auto', onProgress: setTranscribeProgress });
+      if (result) {
+        setTranscript(result.segments.map(segment => segment.text).join('\n\n'));
+        setTranscriptFileName('On-device transcript');
+        setDeviceTranscript(result);
+      }
+    } catch (error) {
+      setDeviceError(describeTranscriptionError(String(error)));
+    } finally {
+      setDeviceStatus('ready');
+      setTranscribeProgress(null);
+    }
+  };
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -115,6 +174,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
       transcript,
       handouts,
       sessionId: selectedSessionId === 'new' ? undefined : selectedSessionId,
+      transcriptData: deviceTranscript ?? undefined,
       onProgress: (progress) => {
         setImportProgress(prev => ({ ...prev, [progress.stage]: progress.status }));
         if (progress.status === 'error' && progress.error) {
@@ -196,6 +256,63 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
             )}
           </div>
 
+          {deviceStatus !== 'unavailable' && (
+            <div className="rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50 dark:bg-indigo-950/40 p-4 space-y-2">
+              <div className="flex items-center gap-2 font-medium text-gray-800 dark:text-gray-200">
+                <MicIcon className="w-5 h-5 text-indigo-500" />
+                Transcribe a recording on this device
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">Free · offline</span>
+              </div>
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                Audio or video (MP3, M4A, MP4, WAV, FLAC, OGG…) is transcribed with open-source models on your computer. Nothing is uploaded.
+              </p>
+              {deviceStatus === 'checking' && <p className="text-sm text-gray-500">Checking speech models…</p>}
+              {deviceStatus === 'needs-models' && (
+                <button
+                  type="button"
+                  onClick={handleDownloadModels}
+                  disabled={isImporting}
+                  className="px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  Download speech models ({formatMb(modelsBytes)}, one time)
+                </button>
+              )}
+              {deviceStatus === 'downloading' && (
+                <div>
+                  <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-500 transition-all"
+                      style={{ width: `${downloadProgress.total ? Math.min(100, (downloadProgress.done / downloadProgress.total) * 100) : 0}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {formatMb(downloadProgress.done)} of {formatMb(downloadProgress.total || modelsBytes)} · verifying each file before use
+                  </p>
+                </div>
+              )}
+              {deviceStatus === 'ready' && (
+                <button
+                  type="button"
+                  onClick={handleTranscribeOnDevice}
+                  disabled={isImporting}
+                  className="px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  Choose audio or video file…
+                </button>
+              )}
+              {deviceStatus === 'transcribing' && (
+                <p className="text-sm text-gray-700 dark:text-gray-300 animate-pulse">
+                  {transcribeProgress?.stage === 'converting'
+                    ? 'Converting the file…'
+                    : transcribeProgress && 'processedSec' in transcribeProgress && transcribeProgress.processedSec
+                      ? `Transcribing… ${formatClock(transcribeProgress.processedSec)}${transcribeProgress.durationSec ? ` of ${formatClock(transcribeProgress.durationSec)}` : ''}`
+                      : 'Loading models and transcribing…'}
+                </p>
+              )}
+              {deviceError && <p className="text-sm text-red-500 dark:text-red-400">{deviceError}</p>}
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Transcript File (.txt, .md)</label>
             <div className="flex items-center space-x-3">
@@ -216,6 +333,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
                     onClick={() => {
                       setTranscriptFileName(null);
                       setTranscript('');
+                      setDeviceTranscript(null);
                     }}
                     className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
                     disabled={isImporting}
@@ -234,7 +352,10 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
             <textarea
               id="transcript"
               value={transcript}
-              onChange={(e) => setTranscript(e.target.value)}
+              onChange={(e) => {
+                setTranscript(e.target.value);
+                setDeviceTranscript(null); // hand edits invalidate the word timings
+              }}
               disabled={isImporting}
               rows={8}
               placeholder="Paste the full transcript here. This is required for all AI features."
