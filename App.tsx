@@ -751,6 +751,7 @@ const App: React.FC = () => {
                     onCreateSession={handleCreateSession}
                     onCreateLiveAsset={handleCreateAsset}
                     onTranscriptUpdate={handleTranscriptUpdate}
+                    onUseOnDevice={isTauri() ? () => { localStorage.setItem('intellinote-live-engine', 'local'); setUseCloudLive(false); } : undefined}
                 />
             );
         case AppView.Note:

@@ -19,6 +19,8 @@ interface LiveNoteTakerProps {
     onCreateSession: (title: string, topic: string) => string;
     onCreateLiveAsset: (sessionId: string, sourceType: LectureAsset['sourceType'], language: string) => string;
     onTranscriptUpdate: (sessionId: string, assetId: string, segments: TranscriptSegment[], transcriptText: string, hasFinalUpdate: boolean, audioPath?: string) => void;
+    /** Desktop only: switch back to free on-device transcription. */
+    onUseOnDevice?: () => void;
 }
 
 const AUDIO_BUFFER_CAPACITY = 40;
@@ -37,6 +39,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
     onCreateSession,
     onCreateLiveAsset,
     onTranscriptUpdate,
+    onUseOnDevice,
 }) => {
     const [isRecording, setIsRecording] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
@@ -767,6 +770,11 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
         <div className="relative flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800 p-8 text-center">
             {renderConnectionStatus()}
             <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Live Note Taker</h2>
+            {onUseOnDevice && (
+                <button onClick={onUseOnDevice} disabled={isRecording} className="mb-4 text-sm text-indigo-600 dark:text-indigo-400 underline disabled:opacity-50">
+                    Use free on-device transcription instead
+                </button>
+            )}
             <p className="text-gray-600 dark:text-gray-400 mb-8 max-w-lg">
                 Click the microphone to start recording your lecture. Your words are transcribed live as you speak.
             </p>
