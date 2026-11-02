@@ -248,3 +248,13 @@ pub async fn recording_finalize<R: Runtime>(app: AppHandle<R>, asset_id: String,
     .await
     .map_err(|_| "worker_failed")?
 }
+
+/// Performance tier for on-device transcription. Runs a one-time ~10 s benchmark when the live
+/// model is installed and nothing is cached; `null` until then.
+#[tauri::command]
+pub async fn transcription_tier<R: Runtime>(app: AppHandle<R>) -> Result<Option<Value>, String> {
+    let app_data = app_data(&app)?;
+    tauri::async_runtime::spawn_blocking(move || super::tier::load_or_measure(&app_data))
+        .await
+        .map_err(|_| "worker_failed")?
+}

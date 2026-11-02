@@ -8,3 +8,4 @@ pub mod crypto;
 pub mod models;
 pub mod recording;
 pub mod sidecar;
+pub mod tier;
