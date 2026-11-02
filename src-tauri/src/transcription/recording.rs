@@ -7,7 +7,7 @@
 //! dropped. The recording lives in the backend, so it survives a webview reload.
 
 use super::archive::{ArchiveWriter, SAMPLE_RATE};
-use super::catalog::{self, catalog, VAD_ID};
+use super::catalog::{self, catalog, PARAKEET_ID, VAD_ID};
 use super::crypto::RecordingKey;
 use super::{models, sidecar};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -389,6 +389,56 @@ impl ActiveRecording {
     }
 }
 
+/// Final pass: decrypts each archive segment in memory and streams it to a fresh sidecar running
+/// Parakeet. Decrypted audio never touches disk. Works for complete and crash-interrupted archives.
+pub fn finalize(app_data: &Path, asset_id: &str, key: RecordingKey, mut on_event: impl FnMut(&Value)) -> Result<Value, String> {
+    if !valid_id(asset_id) {
+        return Err("invalid_id".into());
+    }
+    let dir = recordings_dir(app_data, asset_id);
+    let manifest = super::archive::read_manifest(&dir).map_err(|_| "recording_missing")?;
+    if manifest.segments.is_empty() {
+        return Err("recording_empty".into());
+    }
+    let models_dir = app_data.join("models");
+    for id in [PARAKEET_ID, VAD_ID] {
+        let entry = catalog::model(id).ok_or("unknown_model")?;
+        if !models::is_installed(&models_dir, id, entry) {
+            return Err("models_missing".into());
+        }
+    }
+    let pinned = |id: &str, key: &str| -> Result<Value, String> {
+        let file = catalog::model(id).and_then(|m| m.files.get(key)).ok_or("unknown_model_file")?;
+        Ok(json!({ "path": models::file_path(&models_dir, id, &file.name), "sha256": file.sha256 }))
+    };
+    let request = json!({
+        "type": "startFinal",
+        "id": "final",
+        "language": "auto",
+        "modelVersion": format!("{PARAKEET_ID}@sherpa-onnx-{}", catalog().sherpa_onnx_version),
+        "model": { "encoder": pinned(PARAKEET_ID, "encoder")?, "decoder": pinned(PARAKEET_ID, "decoder")?,
+                   "joiner": pinned(PARAKEET_ID, "joiner")?, "tokens": pinned(PARAKEET_ID, "tokens")? },
+        "vad": pinned(VAD_ID, "model")?,
+        "numThreads": std::thread::available_parallelism().map(|n| n.get().clamp(1, 4) as i32).unwrap_or(2),
+    });
+    let total_sec = manifest.total_samples as f64 / SAMPLE_RATE as f64;
+    let files: Vec<PathBuf> = manifest.segments.iter().map(|segment| dir.join(&segment.file)).collect();
+    let feed = move |out: &mut dyn Write| -> std::io::Result<()> {
+        for file in files {
+            // Unreadable or tampered segments are skipped (GCM authentication fails), not fatal.
+            let Ok(sealed) = std::fs::read(&file) else { continue };
+            let Ok(wav) = key.decrypt(&sealed) else { continue };
+            sidecar::write_raw_frame(out, 3, &wav)?;
+        }
+        sidecar::write_frame(out, &json!({ "type": "endFinal" }))
+    };
+    sidecar::run_with_feed(&request, feed, |event| {
+        let mut event = event.clone();
+        event["durationSec"] = json!(total_sec);
+        on_event(&event);
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -423,6 +473,53 @@ mod tests {
             let alias = output_peak(12_000.0, rate);
             assert!(alias < 0.02, "{rate} Hz: 12 kHz tone should be removed, peak {alias}");
         }
+    }
+
+    /// End-to-end: real lecture audio → encrypted archive → finalize → Parakeet, checked by WER.
+    /// INTELLINOTE_MODELS_DIR=~/.cache/intellinote-models INTELLINOTE_ASR_BIN=asr/target/release/intellinote-asr \
+    ///   cargo test -- --ignored golden_final_pass
+    #[test]
+    #[ignore]
+    fn golden_final_pass_from_encrypted_archive() {
+        let models = PathBuf::from(std::env::var("INTELLINOTE_MODELS_DIR").expect("INTELLINOTE_MODELS_DIR"));
+        let app_data = std::env::temp_dir().join(format!("intellinote-final-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&app_data);
+        for id in [PARAKEET_ID, VAD_ID] {
+            let entry = catalog::model(id).unwrap();
+            let source = entry.archive_root.as_ref().map(|root| models.join(root)).unwrap_or_else(|| models.clone());
+            std::fs::create_dir_all(models::install_dir(&app_data.join("models"), id)).unwrap();
+            for file in entry.files.values() {
+                std::fs::copy(source.join(&file.name), models::file_path(&app_data.join("models"), id, &file.name)).unwrap();
+            }
+        }
+        // 16.7 s LibriSpeech clip (16 kHz, 16-bit) from the Nemotron archive: spans two 15 s segments.
+        let clips = models.join("sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25/test_wavs");
+        let wav = std::fs::read(clips.join("1.wav")).unwrap();
+        let samples: Vec<f32> = wav[44..].chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 / 32768.0).collect();
+        let key = RecordingKey::for_tests(9);
+        let mut archive = ArchiveWriter::create(&recordings_dir(&app_data, "asset-golden"), key.clone()).unwrap();
+        archive.push(&samples).unwrap();
+        assert_eq!(archive.finish().unwrap().segments.len(), 2);
+
+        let transcript = finalize(&app_data, "asset-golden", key, |_| {}).expect("final pass");
+        let text: Vec<String> = transcript["segments"].as_array().unwrap().iter()
+            .flat_map(|s| s["text"].as_str().unwrap().to_lowercase().split_whitespace().map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string()).collect::<Vec<_>>())
+            .filter(|w| !w.is_empty()).collect();
+        let reference = std::fs::read_to_string(clips.join("trans.txt")).unwrap();
+        let reference: Vec<String> = reference.lines().find_map(|l| l.strip_prefix("1.wav ")).unwrap().to_lowercase().split_whitespace().map(str::to_string).collect();
+        // Word-level edit distance.
+        let mut prev: Vec<usize> = (0..=text.len()).collect();
+        for (i, r) in reference.iter().enumerate() {
+            let mut cur = vec![i + 1; text.len() + 1];
+            for (j, h) in text.iter().enumerate() {
+                cur[j + 1] = (prev[j] + usize::from(r != h)).min(prev[j + 1] + 1).min(cur[j] + 1);
+            }
+            prev = cur;
+        }
+        let wer = prev[text.len()] as f64 / reference.len() as f64;
+        assert!(wer <= 0.10, "WER {wer:.3}: {}", text.join(" "));
+        assert!(transcript["segments"][0]["words"].as_array().map(|w| !w.is_empty()).unwrap_or(false), "word timestamps present");
+        let _ = std::fs::remove_dir_all(&app_data);
     }
 
     #[test]

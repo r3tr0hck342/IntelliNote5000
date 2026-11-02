@@ -7,8 +7,8 @@ mod stream;
 mod transcribe;
 mod verify;
 
-use decode::{decode_to_16k_mono, DecodeError};
-use protocol::{read_frame, write_json, KIND_JSON, KIND_PCM};
+use decode::{decode_archive_bytes, decode_to_16k_mono, DecodeError};
+use protocol::{read_frame, write_json, KIND_ARCHIVE, KIND_JSON, KIND_PCM};
 use stream::{pcm_from_bytes, LiveEvent, LiveSession};
 use serde::Deserialize;
 use serde_json::json;
@@ -42,6 +42,18 @@ enum Request {
         num_threads: Option<i32>,
     },
     StopStream,
+    /// Final pass over the recording archive: WAV segments follow as kind-3 frames.
+    #[serde(rename_all = "camelCase")]
+    StartFinal {
+        id: String,
+        model: TransducerModel,
+        vad: PinnedFile,
+        model_version: String,
+        language: String,
+        #[serde(default)]
+        num_threads: Option<i32>,
+    },
+    EndFinal,
     Shutdown,
 }
 
@@ -144,6 +156,8 @@ fn main() {
     let mut input = BufReader::new(io::stdin().lock());
     let mut out = BufWriter::new(io::stdout());
     let mut live: Option<(LiveSession, String)> = None;
+    // (id, transcriber, model version, language, decoded samples)
+    let mut final_pass: Option<(String, FileTranscriber, String, String, u64)> = None;
     loop {
         let frame = match read_frame(&mut input) {
             Ok(Some(frame)) => frame,
@@ -163,6 +177,25 @@ fn main() {
                 (None, _) => error(&mut out, "live", "no_active_stream"),
                 (_, None) => error(&mut out, "live", "bad_pcm_frame"),
             }
+            continue;
+        }
+        if frame.kind == KIND_ARCHIVE {
+            let Some((id, transcriber, _, _, processed)) = final_pass.as_mut() else {
+                error(&mut out, "final", "no_active_final");
+                continue;
+            };
+            let id = id.clone();
+            if decode_archive_bytes(frame.payload, |chunk| {
+                *processed += chunk.len() as u64;
+                transcriber.accept(chunk);
+            })
+            .is_err()
+            {
+                // A corrupt segment is skipped; the rest of the lecture is still transcribed.
+                send(&mut out, json!({ "type": "segmentSkipped", "id": id }));
+            }
+            let processed_sec = *processed as f64 / decode::TARGET_SAMPLE_RATE as f64;
+            send(&mut out, json!({ "type": "progress", "id": id, "processedSec": processed_sec }));
             continue;
         }
         if frame.kind != KIND_JSON {
@@ -211,6 +244,33 @@ fn main() {
                 }
                 send(&mut out, json!({ "type": "streamStopped" }));
             }
+            Request::StartFinal { id, model, vad, model_version, language, num_threads } => {
+                let built = create_parakeet(&model, num_threads.unwrap_or(2))
+                    .and_then(|recognizer| create_vad(&vad).map(|vad| FileTranscriber::new(recognizer, vad)));
+                match built {
+                    Ok(transcriber) => {
+                        send(&mut out, json!({ "type": "status", "id": id, "stage": "transcribing" }));
+                        final_pass = Some((id, transcriber, model_version, language, 0));
+                    }
+                    Err(err) => error(&mut out, &id, asr_error_code(&err)),
+                }
+            }
+            Request::EndFinal => match final_pass.take() {
+                Some((id, transcriber, model_version, language, _)) => send(
+                    &mut out,
+                    json!({
+                        "type": "result",
+                        "id": id,
+                        "transcript": {
+                            "engine": "sherpa-onnx",
+                            "modelVersion": model_version,
+                            "language": language,
+                            "segments": transcriber.finish(),
+                        },
+                    }),
+                ),
+                None => error(&mut out, "final", "no_active_final"),
+            },
             Request::Shutdown => break,
         }
     }

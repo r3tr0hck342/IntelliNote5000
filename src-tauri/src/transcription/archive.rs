@@ -1,13 +1,10 @@
 //! Always-on recording archive, independent of transcription.
 //!
-//! Audio is written as 15 s FLAC segments (16 kHz mono), each encrypted, written to `.partial`,
+//! Audio is written as 15 s WAV segments (16 kHz mono, 16-bit), each encrypted, written to `.partial`,
 //! fsynced, then atomically renamed. `manifest.json` is rewritten the same way after every segment.
 //! A crash loses at most the segment in progress; a transcription failure loses nothing.
 
 use super::crypto::RecordingKey;
-use flacenc::bitsink::ByteSink;
-use flacenc::component::BitRepr;
-use flacenc::error::Verify;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -60,14 +57,27 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-pub fn encode_flac(samples: &[f32]) -> Result<Vec<u8>, String> {
-    let ints: Vec<i32> = samples.iter().map(|s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i32).collect();
-    let config = flacenc::config::Encoder::default().into_verified().map_err(|_| "flac_config")?;
-    let source = flacenc::source::MemSource::from_samples(&ints, 1, 16, SAMPLE_RATE);
-    let stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size).map_err(|_| "flac_encode")?;
-    let mut sink = ByteSink::new();
-    stream.write(&mut sink).map_err(|_| "flac_write")?;
-    Ok(sink.as_slice().to_vec())
+/// 16-bit PCM WAV, 16 kHz mono. (FLAC was tried first, but flacenc 0.5.1 output fails
+/// symphonia 0.6.1's probe with UnexpectedEof; WAV decodes everywhere at ~1.7x the size.)
+pub fn encode_wav(samples: &[f32]) -> Vec<u8> {
+    let data_len = (samples.len() * 2) as u32;
+    let mut out = Vec::with_capacity(44 + samples.len() * 2);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes()); // PCM fmt chunk size
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&1u16.to_le_bytes()); // mono
+    out.extend_from_slice(&(SAMPLE_RATE as u32).to_le_bytes());
+    out.extend_from_slice(&(SAMPLE_RATE as u32 * 2).to_le_bytes()); // byte rate
+    out.extend_from_slice(&2u16.to_le_bytes()); // block align
+    out.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for sample in samples {
+        out.extend_from_slice(&((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16).to_le_bytes());
+    }
+    out
 }
 
 impl ArchiveWriter {
@@ -112,9 +122,8 @@ impl ArchiveWriter {
     }
 
     fn write_segment(&mut self, samples: &[f32]) -> io::Result<()> {
-        let flac = encode_flac(samples).map_err(|code| io::Error::new(io::ErrorKind::Other, code))?;
-        let name = format!("seg-{:06}.flac.enc", self.manifest.segments.len());
-        write_atomic(&self.dir.join(&name), &self.key.encrypt(&flac))?;
+        let name = format!("seg-{:06}.wav.enc", self.manifest.segments.len());
+        write_atomic(&self.dir.join(&name), &self.key.encrypt(&encode_wav(samples)))?;
         self.manifest.segments.push(SegmentEntry { file: name, samples: samples.len() as u64 });
         self.manifest.total_samples += samples.len() as u64;
         self.write_manifest()
@@ -126,7 +135,6 @@ impl ArchiveWriter {
     }
 }
 
-#[allow(dead_code)] // read back by the final pass (Phase 3)
 pub fn read_manifest(dir: &Path) -> io::Result<Manifest> {
     serde_json::from_slice(&fs::read(dir.join("manifest.json"))?).map_err(io::Error::other)
 }
@@ -161,8 +169,8 @@ mod tests {
         assert_eq!(manifest, read_manifest(&dir).unwrap());
 
         let sealed = fs::read(dir.join(&manifest.segments[0].file)).unwrap();
-        assert_ne!(&sealed[..4], b"fLaC", "segments are not stored in the clear");
-        assert_eq!(&key.decrypt(&sealed).unwrap()[..4], b"fLaC", "decrypts to a FLAC stream");
+        assert_ne!(&sealed[..4], b"RIFF", "segments are not stored in the clear");
+        assert_eq!(&key.decrypt(&sealed).unwrap()[..4], b"RIFF", "decrypts to a WAV stream");
         assert!(fs::read_dir(&dir).unwrap().all(|entry| !entry.unwrap().file_name().to_string_lossy().ends_with(".partial")));
     }
 

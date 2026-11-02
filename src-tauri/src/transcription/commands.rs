@@ -233,3 +233,18 @@ pub fn recording_attach(state: State<'_, RecordingState>, on_event: Channel<Valu
         None => Ok(false),
     }
 }
+
+/// Final pass over a recording's encrypted archive (after stop, or to recover a crashed or
+/// record-only session). Returns the Transcript JSON, validated again in the UI.
+#[tauri::command]
+pub async fn recording_finalize<R: Runtime>(app: AppHandle<R>, asset_id: String, on_event: Channel<Value>) -> Result<Value, String> {
+    let app_data = app_data(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let key = crate::transcription::crypto::RecordingKey::load_or_create().map_err(|_| "keychain_unavailable")?;
+        recording::finalize(&app_data, &asset_id, key, |event| {
+            let _ = on_event.send(event.clone());
+        })
+    })
+    .await
+    .map_err(|_| "worker_failed")?
+}
