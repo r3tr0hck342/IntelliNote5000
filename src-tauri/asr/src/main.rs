@@ -3,11 +3,13 @@
 
 mod decode;
 mod protocol;
+mod stream;
 mod transcribe;
 mod verify;
 
 use decode::{decode_to_16k_mono, DecodeError};
-use protocol::{read_frame, write_json, KIND_JSON};
+use protocol::{read_frame, write_json, KIND_JSON, KIND_PCM};
+use stream::{pcm_from_bytes, LiveEvent, LiveSession};
 use serde::Deserialize;
 use serde_json::json;
 use std::cell::Cell;
@@ -31,6 +33,15 @@ enum Request {
         #[serde(default)]
         num_threads: Option<i32>,
     },
+    #[serde(rename_all = "camelCase")]
+    StartStream {
+        model: TransducerModel,
+        vad: PinnedFile,
+        model_version: String,
+        #[serde(default)]
+        num_threads: Option<i32>,
+    },
+    StopStream,
     Shutdown,
 }
 
@@ -69,6 +80,17 @@ fn send(out: &mut BufWriter<Stdout>, value: serde_json::Value) {
 
 fn error(out: &mut BufWriter<Stdout>, id: &str, code: &str) {
     send(out, json!({ "type": "error", "id": id, "code": code }));
+}
+
+fn send_live_events(out: &mut BufWriter<Stdout>, model_version: &str, events: Vec<LiveEvent>) {
+    for event in events {
+        match event {
+            LiveEvent::Partial(text) => send(out, json!({ "type": "partial", "text": text })),
+            LiveEvent::Final(segment) => {
+                send(out, json!({ "type": "final", "segment": segment, "modelVersion": model_version }))
+            }
+        }
+    }
 }
 
 fn transcribe_file(out: &mut BufWriter<Stdout>, job: FileJob) {
@@ -121,6 +143,7 @@ fn transcribe_file(out: &mut BufWriter<Stdout>, job: FileJob) {
 fn main() {
     let mut input = BufReader::new(io::stdin().lock());
     let mut out = BufWriter::new(io::stdout());
+    let mut live: Option<(LiveSession, String)> = None;
     loop {
         let frame = match read_frame(&mut input) {
             Ok(Some(frame)) => frame,
@@ -130,6 +153,18 @@ fn main() {
                 break;
             }
         };
+        if frame.kind == KIND_PCM {
+            match (live.as_mut(), pcm_from_bytes(&frame.payload)) {
+                (Some((session, version)), Some(samples)) => {
+                    let events = session.accept(&samples);
+                    let version = version.clone();
+                    send_live_events(&mut out, &version, events);
+                }
+                (None, _) => error(&mut out, "live", "no_active_stream"),
+                (_, None) => error(&mut out, "live", "bad_pcm_frame"),
+            }
+            continue;
+        }
         if frame.kind != KIND_JSON {
             error(&mut out, "", "unsupported_frame");
             continue;
@@ -159,6 +194,22 @@ fn main() {
                         num_threads: num_threads.unwrap_or(2),
                     },
                 );
+            }
+            Request::StartStream { model, vad, model_version, num_threads } => {
+                match LiveSession::new(&model, &vad, num_threads.unwrap_or(2)) {
+                    Ok(session) => {
+                        live = Some((session, model_version));
+                        send(&mut out, json!({ "type": "streamStarted" }));
+                    }
+                    Err(err) => error(&mut out, "live", asr_error_code(&err)),
+                }
+            }
+            Request::StopStream => {
+                if let Some((mut session, version)) = live.take() {
+                    let events = session.finish();
+                    send_live_events(&mut out, &version, events);
+                }
+                send(&mut out, json!({ "type": "streamStopped" }));
             }
             Request::Shutdown => break,
         }
