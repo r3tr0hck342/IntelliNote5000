@@ -25,6 +25,7 @@ reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-
 aes-gcm = "=0.10.3"
 sysinfo = { version = "=0.40.1", default-features = false, features = ["system"] }
 starship-battery = "=0.12.0"
+tauri-plugin-opener = "=2.7.2"
 
 [features]
 default = ["custom-protocol"]

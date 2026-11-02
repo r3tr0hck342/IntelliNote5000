@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { openExternal } from '../utils/openExternal';
 import { StudySession, GenerationMode, Flashcard, Handout, TranscriptSegment, ChatMessage, GroundingSource, AiEditMode } from '../types';
 import { processTranscript, generateFlashcards, getChatResponseStream, editTranscriptWithAi } from '../services/aiService';
 import { DownloadIcon, NoteIcon, ArrowLeftIcon, ArrowRightIcon, RefreshIcon, PaperclipIcon, TagIcon, XIcon, EditIcon, ChatBubbleIcon, SendIcon, UploadIcon, FileTextIcon, BrainIcon, SparklesIcon, LayersIcon, BookOpenIcon, QuestionMarkCircleIcon, MenuIcon, SearchIcon, ChevronUpIcon, ChevronDownIcon } from './icons';
@@ -973,7 +974,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
                                                 <ul className="text-xs space-y-1">
                                                     {msg.sources.map((source, i) => (
                                                         <li key={i} className="truncate">
-                                                            <a href={source.uri} target="_blank" rel="noopener noreferrer" className="text-indigo-500 dark:text-indigo-400 hover:underline" title={source.title || source.uri}>
+                                                            <a href={source.uri} onClick={e => { e.preventDefault(); void openExternal(source.uri); }} rel="noopener noreferrer" className="text-indigo-500 dark:text-indigo-400 hover:underline" title={source.title || source.uri}>
                                                                 {i + 1}. {source.title || source.uri}
                                                             </a>
                                                         </li>

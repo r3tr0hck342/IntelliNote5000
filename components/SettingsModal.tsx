@@ -1,4 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
+import SetupGuideCard from './SetupGuideCard';
+import { AI_SETUP_GUIDES, STT_SETUP_GUIDES } from '../services/setupGuides';
+import { openExternal } from '../utils/openExternal';
 import { XIcon, BrainIcon, SunIcon, MoonIcon } from './icons';
 import { ApiConfig } from '../utils/apiConfig';
 import { ProviderId } from '../types/ai';
@@ -60,6 +63,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const defaultProvider = useMemo<ProviderId>(() => availableProviders[0]?.id ?? 'gemini', [availableProviders]);
   const defaultSttProvider = useMemo<SttProviderId>(() => availableSttProviders[0]?.id ?? 'deepgram', [availableSttProviders]);
+  // On-device speed tier (desktop only): undefined = web build, null = not measured yet.
+  const [deviceTier, setDeviceTier] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) return;
+    import('@tauri-apps/api/core')
+      .then(({ invoke }) => invoke<{ tier: string } | null>('transcription_tier'))
+      .then(result => setDeviceTier(result?.tier ?? null))
+      .catch(() => setDeviceTier(null));
+  }, []);
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>(apiConfig?.provider ?? defaultProvider);
   const [apiKey, setApiKey] = useState(apiConfig?.apiKey ?? '');
   const [baseUrl, setBaseUrl] = useState(apiConfig?.baseUrl ?? '');
@@ -187,6 +199,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <section>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">AI Provider</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+              Writes your notes, flashcards and answers. Free options: Gemini, OpenRouter, Mistral, or Ollama (runs on this computer). Your transcript is sent to the provider you pick, except Ollama.
+            </p>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
               IntelliNote runs on your own credentials. Pick a provider, paste its key, and optionally choose models. Options marked Free cost nothing. Keys are stored in secure storage on native builds; browser storage is optional and must be enabled below.
             </p>
@@ -207,9 +222,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 {selectedMetadata && (
                   <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
                     <p>{selectedMetadata.description}{selectedMetadata.isFree && freeBadge}</p>
-                    <a href={selectedMetadata.docsUrl} target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline">
-                      Models & documentation
-                    </a>
+                    <button type="button" onClick={() => void openExternal(selectedMetadata.docsUrl)} className="text-indigo-500 hover:underline">
+                      Models & documentation ↗
+                    </button>
+                    {AI_SETUP_GUIDES[selectedMetadata.id] && <SetupGuideCard guide={AI_SETUP_GUIDES[selectedMetadata.id]} />}
                   </div>
                 )}
               </div>
@@ -280,6 +296,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <section>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Transcription Provider</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+              <strong>Desktop app: you don&apos;t need this.</strong> The Live tab transcribes on this computer: free, unlimited, no account, and audio never leaves the device (speech models download once, about 1.2 GB).
+              Cloud free tiers all have limits (Groq: hourly/daily caps; Deepgram: one-time credit). If you hit them, switch to on-device, or use a paid option (OpenAI preset or Deepgram, pay per minute). Cloud providers receive your audio.
+            </p>
+            {deviceTier !== undefined && (
+              <p className="text-sm mb-3 text-gray-700 dark:text-gray-300" role="status">
+                <span className="font-medium">This computer: </span>
+                {deviceTier === null ? 'speed not measured yet (open the Live tab once).'
+                  : deviceTier === 'below-floor' ? 'too slow for live text; it records first and transcribes after you stop (still free and unlimited).'
+                  : `can transcribe live on its own (${deviceTier === 'high' ? 'fast' : 'standard'}).`}
+              </p>
+            )}
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
               Powers live lecture transcription. Separate from your AI provider. Whisper is free: use Groq&apos;s free tier, or run an open-source Whisper server on your own computer.
             </p>
@@ -300,9 +328,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 {selectedSttMetadata && (
                   <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
                     <p>{selectedSttMetadata.description}{selectedSttMetadata.isFree && freeBadge}</p>
-                    <a href={selectedSttMetadata.docsUrl} target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline">
-                      Provider documentation
-                    </a>
+                    <button type="button" onClick={() => void openExternal(selectedSttMetadata.docsUrl)} className="text-indigo-500 hover:underline">
+                      Provider documentation ↗
+                    </button>
+                    {STT_SETUP_GUIDES[selectedSttMetadata.id] && <SetupGuideCard guide={STT_SETUP_GUIDES[selectedSttMetadata.id]} />}
                   </div>
                 )}
               </div>

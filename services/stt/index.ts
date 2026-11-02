@@ -26,6 +26,7 @@ export interface SttProviderMetadata {
 export const WHISPER_ENDPOINT_PRESETS = [
   { label: 'Groq (free tier, cloud)', baseUrl: WHISPER_DEFAULT_BASE_URL, model: WHISPER_DEFAULT_MODEL },
   { label: 'Local Whisper server (speaches / faster-whisper)', baseUrl: 'http://localhost:8000/v1', model: 'Systran/faster-whisper-small' },
+  { label: 'OpenAI (paid, no daily limit)', baseUrl: 'https://api.openai.com/v1', model: 'whisper-1' },
 ];
 
 export const STT_PROVIDER_METADATA: Record<SttConfig['provider'], SttProviderMetadata> = {
