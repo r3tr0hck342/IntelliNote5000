@@ -4,6 +4,7 @@ import { MicIcon, StopIcon } from './icons';
 import { createId, buildTranscriptText } from '../utils/transcript';
 import { localEngine, describeTranscriptionError } from '../services/transcription/localEngine';
 import { logEvent } from '../utils/logger';
+import { parseTranscript, toTranscriptSegments } from '../services/transcription/schema';
 
 // On-device live recording (desktop). Capture, the encrypted archive, and recognition all run in
 // the app backend, so a webview reload does not stop the recording: this view reattaches.
@@ -54,6 +55,7 @@ const NativeLiveRecorder: React.FC<Props> = ({ sessions, onCreateSession, onCrea
   const [error, setError] = useState<string | null>(null);
   const [liveModelsMissing, setLiveModelsMissing] = useState(false);
   const [download, setDownload] = useState<{ done: number; total: number } | null>(null);
+  const [finalizing, setFinalizing] = useState<{ processed: number; total: number } | null>(null);
 
   const ids = useRef<{ sessionId: string; assetId: string } | null>(null);
   const segmentsRef = useRef<TranscriptSegment[]>([]);
@@ -190,8 +192,36 @@ const NativeLiveRecorder: React.FC<Props> = ({ sessions, onCreateSession, onCrea
     }
   };
 
+  // Final pass: Parakeet over the encrypted archive replaces the live text, then the notes
+  // pipeline runs on it (onTranscriptUpdate with a final update triggers auto-generation).
+  const runFinalPass = useCallback(async (target: { sessionId: string; assetId: string }) => {
+    setFinalizing({ processed: 0, total: 0 });
+    try {
+      const { Channel } = await import('@tauri-apps/api/core');
+      const channel = new Channel<{ type: string; processedSec?: number; durationSec?: number }>();
+      channel.onmessage = event => {
+        if (event.type === 'progress') setFinalizing({ processed: event.processedSec ?? 0, total: event.durationSec ?? 0 });
+      };
+      const started = Date.now();
+      const transcript = parseTranscript(await invoke<unknown>('recording_finalize', { assetId: target.assetId, onEvent: channel }));
+      const finalSegments = toTranscriptSegments(transcript, target.assetId, new Date().toISOString());
+      if (finalSegments.length > 0) {
+        segmentsRef.current = finalSegments;
+        setSegments(finalSegments);
+        onTranscriptUpdate(target.sessionId, target.assetId, finalSegments, buildTranscriptText(finalSegments), true);
+      }
+      logEvent('info', 'Final transcript ready', { segments: finalSegments.length, elapsedMs: Date.now() - started });
+    } catch (err) {
+      // The live transcript stays; the archive is kept, so the final pass can be retried.
+      setError(`Final transcript failed: ${describeTranscriptionError(String(err))} The live transcript was kept.`);
+    } finally {
+      setFinalizing(null);
+    }
+  }, [onTranscriptUpdate]);
+
   const handleStop = async () => {
     setStopping(true);
+    const target = ids.current;
     try {
       await invoke('recording_stop');
     } finally {
@@ -200,10 +230,11 @@ const NativeLiveRecorder: React.FC<Props> = ({ sessions, onCreateSession, onCrea
       setPartial('');
       setLevel(0);
     }
+    if (target) await runFinalPass(target);
   };
 
   const clock = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(Math.floor(elapsed % 60)).padStart(2, '0')}`;
-  const sessionLocked = recording || stopping;
+  const sessionLocked = recording || stopping || !!finalizing;
 
   if (!consented) {
     return (
@@ -263,7 +294,7 @@ const NativeLiveRecorder: React.FC<Props> = ({ sessions, onCreateSession, onCrea
 
       <button
         onClick={recording ? handleStop : handleStart}
-        disabled={stopping}
+        disabled={stopping || !!finalizing}
         aria-label={recording ? 'Stop recording' : 'Start recording'}
         className={`${recording ? 'bg-red-600 hover:bg-red-700 animate-pulse' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-full p-6 shadow-lg disabled:opacity-50 mb-4`}
       >
@@ -277,6 +308,17 @@ const NativeLiveRecorder: React.FC<Props> = ({ sessions, onCreateSession, onCrea
             <div className="h-full bg-indigo-500 transition-all duration-100" style={{ width: `${Math.min(100, level * 400)}%` }} />
           </div>
           {lowLevel && <span className="text-yellow-600 dark:text-yellow-400">Very quiet input: check the source or move closer.</span>}
+        </div>
+      )}
+
+      {finalizing && (
+        <div className="mb-3 w-full max-w-3xl" role="status">
+          <p className="text-sm text-gray-700 dark:text-gray-300 mb-1">
+            Finalizing transcript… {finalizing.total > 0 ? `${Math.round((finalizing.processed / finalizing.total) * 100)}%` : ''}
+          </p>
+          <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+            <div className="h-full bg-indigo-500 transition-all" style={{ width: `${finalizing.total > 0 ? Math.min(100, (finalizing.processed / finalizing.total) * 100) : 5}%` }} />
+          </div>
         </div>
       )}
 

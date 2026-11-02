@@ -29,15 +29,31 @@ pub struct DecodeInfo {
 
 pub fn decode_to_16k_mono(
     path: &Path,
-    mut on_chunk: impl FnMut(&[f32]),
-    mut on_info: impl FnMut(DecodeInfo),
+    on_chunk: impl FnMut(&[f32]),
+    on_info: impl FnMut(DecodeInfo),
 ) -> Result<(), DecodeError> {
     let file = File::open(path).map_err(|_| DecodeError::Unreadable)?;
-    let mss = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
     let mut hint = Hint::new();
     if let Some(extension) = path.extension().and_then(|ext| ext.to_str()) {
         hint.with_extension(extension);
     }
+    decode_source(MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default()), hint, on_chunk, on_info)
+}
+
+/// Decodes an in-memory WAV archive segment (decrypted audio never touches disk).
+pub fn decode_archive_bytes(bytes: Vec<u8>, on_chunk: impl FnMut(&[f32])) -> Result<(), DecodeError> {
+    let mut hint = Hint::new();
+    hint.with_extension("wav");
+    let source = MediaSourceStream::new(Box::new(std::io::Cursor::new(bytes)), MediaSourceStreamOptions::default());
+    decode_source(source, hint, on_chunk, |_| {})
+}
+
+fn decode_source(
+    mss: MediaSourceStream<'static>,
+    hint: Hint,
+    mut on_chunk: impl FnMut(&[f32]),
+    mut on_info: impl FnMut(DecodeInfo),
+) -> Result<(), DecodeError> {
     let mut format = symphonia::default::get_probe()
         .probe(&hint, mss, FormatOptions::default(), MetadataOptions::default())
         .map_err(|_| DecodeError::Unsupported)?;

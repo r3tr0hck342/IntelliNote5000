@@ -19,12 +19,17 @@ const MAX_FRAME_BYTES: u32 = 64 * 1024 * 1024; // results for a long lecture can
 
 /// Tauri bundles `externalBin` sidecars next to the main executable on every platform.
 pub fn sidecar_path() -> io::Result<PathBuf> {
+    // Tests run from target/*/deps, where no sidecar is bundled.
+    #[cfg(test)]
+    if let Some(path) = std::env::var_os("INTELLINOTE_ASR_BIN") {
+        return Ok(PathBuf::from(path));
+    }
     let exe = std::env::current_exe()?;
     let dir = exe.parent().ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no exe dir"))?;
     Ok(dir.join(format!("intellinote-asr{}", std::env::consts::EXE_SUFFIX)))
 }
 
-pub fn write_frame(writer: &mut impl Write, value: &Value) -> io::Result<()> {
+pub fn write_frame(writer: &mut (impl Write + ?Sized), value: &Value) -> io::Result<()> {
     let body = value.to_string().into_bytes();
     let len = u32::try_from(body.len() + 1).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?;
     writer.write_all(&len.to_le_bytes())?;
@@ -52,9 +57,28 @@ pub fn read_frame(reader: &mut impl Read) -> io::Result<Option<Value>> {
     serde_json::from_slice(&buf[1..]).map(Some).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
 }
 
+/// Writes a raw frame (e.g. kind 3: one WAV archive segment).
+pub fn write_raw_frame(writer: &mut (impl Write + ?Sized), kind: u8, payload: &[u8]) -> io::Result<()> {
+    let len = u32::try_from(payload.len() + 1).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "frame too large"))?;
+    writer.write_all(&len.to_le_bytes())?;
+    writer.write_all(&[kind])?;
+    writer.write_all(payload)?;
+    writer.flush()
+}
+
 /// Runs one request to completion in a fresh sidecar process. Status and progress events go to
 /// `on_event`; the `result` payload is returned. Errors are short codes, never paths or text.
-pub fn run(request: &Value, mut on_event: impl FnMut(&Value)) -> Result<Value, String> {
+pub fn run(request: &Value, on_event: impl FnMut(&Value)) -> Result<Value, String> {
+    run_with_feed(request, |_| Ok(()), on_event)
+}
+
+/// Like `run`, but `feed` streams extra frames after the request. It runs on its own thread so
+/// that writing audio and reading progress events can never deadlock on full pipes.
+pub fn run_with_feed(
+    request: &Value,
+    feed: impl FnOnce(&mut dyn Write) -> io::Result<()> + Send + 'static,
+    mut on_event: impl FnMut(&Value),
+) -> Result<Value, String> {
     let mut child = Command::new(sidecar_path().map_err(|_| "sidecar_missing")?)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -62,9 +86,13 @@ pub fn run(request: &Value, mut on_event: impl FnMut(&Value)) -> Result<Value, S
         .spawn()
         .map_err(|_| "sidecar_missing".to_string())?;
     let result = (|| {
-        let mut stdin = child.stdin.take().ok_or("sidecar_io")?;
+        let mut stdin = std::io::BufWriter::new(child.stdin.take().ok_or("sidecar_io")?);
         write_frame(&mut stdin, request).map_err(|_| "sidecar_io")?;
-        drop(stdin); // one request per process; EOF makes the sidecar exit after answering
+        // One request per process; closing stdin after the feed makes the sidecar exit when done.
+        std::thread::spawn(move || {
+            let _ = feed(&mut stdin);
+            let _ = stdin.flush();
+        });
         // Frames are read on a helper thread so a hung sidecar can be detected and killed.
         let mut stdout = BufReader::new(child.stdout.take().ok_or("sidecar_io")?);
         let (sender, receiver) = mpsc::channel();

@@ -44,7 +44,8 @@ fn main() {
             transcription::commands::recording_start,
             transcription::commands::recording_stop,
             transcription::commands::recording_status,
-            transcription::commands::recording_attach
+            transcription::commands::recording_attach,
+            transcription::commands::recording_finalize
         ])
         .run(tauri::generate_context!())
         .expect("error while running IntelliNote desktop application");

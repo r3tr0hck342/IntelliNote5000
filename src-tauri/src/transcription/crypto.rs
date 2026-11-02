@@ -14,7 +14,6 @@ const NONCE_LEN: usize = 12;
 pub struct RecordingKey(Key<Aes256Gcm>);
 
 #[derive(Debug, PartialEq)]
-#[allow(dead_code)] // decryption errors are used by the final pass (Phase 3)
 pub enum CryptoError {
     Keychain,
     Malformed,
@@ -54,7 +53,6 @@ impl RecordingKey {
         out
     }
 
-    #[allow(dead_code)] // read back by the final pass (Phase 3)
     pub fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>, CryptoError> {
         if data.len() < MAGIC.len() + NONCE_LEN || &data[..MAGIC.len()] != MAGIC {
             return Err(CryptoError::Malformed);
