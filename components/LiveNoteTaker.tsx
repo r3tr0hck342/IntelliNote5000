@@ -381,6 +381,23 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                 onOpenSettings();
                 return;
             }
+            // Checked before creating the session or entering the recording state, so a denial leaves nothing half-started.
+            if (navigator.permissions?.query) {
+                try {
+                    const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+                    if (status.state === 'denied') {
+                        setError('Microphone access is blocked in system settings. Enable it to start recording.');
+                        pushToast({
+                            title: 'Microphone blocked',
+                            description: 'Enable microphone access in system settings to start recording.',
+                            variant: 'error',
+                        });
+                        return;
+                    }
+                } catch (permError) {
+                    console.warn('Unable to query microphone permission state:', permError);
+                }
+            }
 
             const sessionId = selectedSessionId === 'new'
                 ? onCreateSession(newSessionTitle, newSessionTopic)
@@ -400,22 +417,6 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             logEvent('info', 'Initializing STT provider', { provider: sttConfig.provider, language: sttConfig.language });
             const provider = createStreamingSttProvider(sttConfig);
             streamingProviderRef.current = provider;
-            if (navigator.permissions?.query) {
-                try {
-                    const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
-                    if (status.state === 'denied') {
-                        setError('Microphone access is blocked in system settings. Enable it to start recording.');
-                        pushToast({
-                            title: 'Microphone blocked',
-                            description: 'Enable microphone access in system settings to start recording.',
-                            variant: 'error',
-                        });
-                        return;
-                    }
-                } catch (permError) {
-                    console.warn('Unable to query microphone permission state:', permError);
-                }
-            }
 
             mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({
                 audio: {
