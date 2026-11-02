@@ -11,10 +11,22 @@
       "archiveSha256": "5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf",
       "archiveRoot": "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
       "files": {
-        "encoder": { "name": "encoder.int8.onnx", "sha256": "acfc2b4456377e15d04f0243af540b7fe7c992f8d898d751cf134c3a55fd2247" },
-        "decoder": { "name": "decoder.int8.onnx", "sha256": "179e50c43d1a9de79c8a24149a2f9bac6eb5981823f2a2ed88d655b24248db4e" },
-        "joiner": { "name": "joiner.int8.onnx", "sha256": "3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3" },
-        "tokens": { "name": "tokens.txt", "sha256": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d" }
+        "encoder": {
+          "name": "encoder.int8.onnx",
+          "sha256": "acfc2b4456377e15d04f0243af540b7fe7c992f8d898d751cf134c3a55fd2247"
+        },
+        "decoder": {
+          "name": "decoder.int8.onnx",
+          "sha256": "179e50c43d1a9de79c8a24149a2f9bac6eb5981823f2a2ed88d655b24248db4e"
+        },
+        "joiner": {
+          "name": "joiner.int8.onnx",
+          "sha256": "3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3"
+        },
+        "tokens": {
+          "name": "tokens.txt",
+          "sha256": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d"
+        }
       }
     },
     "silero-vad": {
@@ -26,7 +38,37 @@
       "archiveSha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
       "archiveRoot": null,
       "files": {
-        "model": { "name": "silero_vad.onnx", "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6" }
+        "model": {
+          "name": "silero_vad.onnx",
+          "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
+        }
+      }
+    },
+    "nemotron-speech-streaming-en-0.6b-560ms-int8": {
+      "role": "live",
+      "license": "NVIDIA Open Model License",
+      "attribution": "NVIDIA nemotron-speech-streaming-en-0.6b, converted by the sherpa-onnx project. Licensed by NVIDIA Corporation under the NVIDIA Open Model License",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25.tar.bz2",
+      "archiveBytes": 463945051,
+      "archiveSha256": "78e2b79fcf7271553a74402a76b771b09ea40117a39566a79f52235b23db6358",
+      "archiveRoot": "sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25",
+      "files": {
+        "encoder": {
+          "name": "encoder.int8.onnx",
+          "sha256": "7d932213491ad355c6e5576705dc3494731a52af87d7a1b954559340147909d8"
+        },
+        "decoder": {
+          "name": "decoder.int8.onnx",
+          "sha256": "0be9702c2f427a2b6bb241d298e0d3836a558de1f5b9fd3018f1cce6e2b3fa98"
+        },
+        "joiner": {
+          "name": "joiner.int8.onnx",
+          "sha256": "a35eac38a22ebceb04d230ed7afe0d68f446ba6914a036b97f14fece95967e23"
+        },
+        "tokens": {
+          "name": "tokens.txt",
+          "sha256": "dc0b4584ab2e4ddbf888425c076c61b736e7356a015250db7d307e6f1a8188ff"
+        }
       }
     }
   }

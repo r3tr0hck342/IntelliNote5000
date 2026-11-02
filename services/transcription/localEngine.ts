@@ -4,6 +4,9 @@ import { parseTranscript, type Transcript } from './schema';
 import type { EngineCaps, FileOptions, FileSource, ModelInfo, StreamHandle, StreamOptions, TranscriptionEngine } from './engine';
 
 // Parakeet TDT 0.6B v3 languages (k2-fsa nemo-transducer-models page).
+/** final = Parakeet (files, final pass), vad = Silero, live = Nemotron streaming. */
+export type ModelRole = 'final' | 'vad' | 'live';
+
 const PARAKEET_LANGUAGES = ['bg', 'hr', 'cs', 'da', 'nl', 'en', 'et', 'fi', 'fr', 'de', 'el', 'hu', 'it', 'lv', 'lt', 'mt', 'pl', 'pt', 'ro', 'sk', 'sl', 'es', 'sv', 'ru', 'uk'];
 
 type SidecarEvent =
@@ -41,7 +44,7 @@ const createChannel = async (onMessage: (event: SidecarEvent) => void) => {
 };
 
 export const localEngine: TranscriptionEngine & {
-  installModels: (onProgress: (done: number, total: number) => void) => Promise<void>;
+  installModels: (roles: ModelRole[], onProgress: (done: number, total: number) => void) => Promise<void>;
 } = {
   startStream(_opts: StreamOptions): StreamHandle {
     throw new Error('Live on-device transcription is not available yet.');
@@ -54,9 +57,9 @@ export const localEngine: TranscriptionEngine & {
   },
 
   /** Downloads every missing model; progress covers all of them as one total. */
-  async installModels(onProgress) {
+  async installModels(roles, onProgress) {
     const models = await invoke<ModelInfo[]>('transcription_models_status');
-    const missing = models.filter(model => !model.installed);
+    const missing = models.filter(model => !model.installed && roles.includes(model.role as ModelRole));
     const total = missing.reduce((sum, model) => sum + model.downloadBytes, 0);
     const finished = new Map<string, number>();
     const channel = await createChannel(event => {
@@ -65,7 +68,7 @@ export const localEngine: TranscriptionEngine & {
       onProgress([...finished.values()].reduce((sum, value) => sum + value, 0), total);
     });
     logEvent('info', 'Transcription models download started', { models: missing.length, bytes: total });
-    await invoke('transcription_install_models', { onEvent: channel });
+    await invoke('transcription_install_models', { roles, onEvent: channel });
     logEvent('info', 'Transcription models installed', { models: missing.length });
   },
 

@@ -8,6 +8,8 @@
 use std::io::{self, Read, Write};
 
 pub const KIND_JSON: u8 = 1;
+/// Raw little-endian f32 PCM, 16 kHz mono (live streaming).
+pub const KIND_PCM: u8 = 2;
 /// Large enough for any control message or a few seconds of PCM, small enough to bound memory.
 pub const MAX_FRAME_BYTES: u32 = 8 * 1024 * 1024;
 

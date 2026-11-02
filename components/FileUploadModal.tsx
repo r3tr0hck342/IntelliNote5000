@@ -66,7 +66,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
     if (!isTauri()) return;
     localEngine.capabilities()
       .then(caps => {
-        const missing = caps.models.filter(model => !model.installed);
+        const missing = caps.models.filter(model => !model.installed && (model.role === 'final' || model.role === 'vad'));
         setModelsBytes(missing.reduce((sum, model) => sum + model.downloadBytes, 0));
         setDeviceStatus(missing.length > 0 ? 'needs-models' : 'ready');
       })
@@ -77,7 +77,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
     setDeviceError(null);
     setDeviceStatus('downloading');
     try {
-      await localEngine.installModels((done, total) => setDownloadProgress({ done, total }));
+      await localEngine.installModels(['final', 'vad'], (done, total) => setDownloadProgress({ done, total }));
       setDeviceStatus('ready');
     } catch (error) {
       setDeviceError(describeTranscriptionError(String(error)));
