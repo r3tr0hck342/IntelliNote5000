@@ -5,6 +5,13 @@ mod secure_storage;
 use tauri::webview::{PermissionKind, PermissionResponse};
 
 fn main() {
+    // WebKitGTK's DMA-BUF renderer crashes on Wayland with NVIDIA GPUs ("Error 71 (Protocol error)").
+    // Set before any threads start; an explicit user value still wins.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
