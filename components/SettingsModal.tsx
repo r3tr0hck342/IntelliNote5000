@@ -4,7 +4,7 @@ import { ApiConfig } from '../utils/apiConfig';
 import { ProviderId } from '../types/ai';
 import { ProviderMetadata } from '../services/providers/types';
 import { SttConfig, SttProviderId } from '../types/stt';
-import { SttProviderMetadata } from '../services/stt';
+import { SttProviderMetadata, WHISPER_ENDPOINT_PRESETS } from '../services/stt';
 import type { AutoGenerationConfig } from '../utils/autoGenerationConfig';
 import { getBuildLabel } from '../utils/buildLabel';
 import { getPlatformInfo } from '../utils/diagnosticsBundle';
@@ -63,8 +63,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>(apiConfig?.provider ?? defaultProvider);
   const [apiKey, setApiKey] = useState(apiConfig?.apiKey ?? '');
   const [baseUrl, setBaseUrl] = useState(apiConfig?.baseUrl ?? '');
+  const [model, setModel] = useState(apiConfig?.model ?? '');
+  const [advancedModel, setAdvancedModel] = useState(apiConfig?.advancedModel ?? '');
   const [selectedSttProvider, setSelectedSttProvider] = useState<SttProviderId>(sttConfig?.provider ?? defaultSttProvider);
   const [sttApiKey, setSttApiKey] = useState(sttConfig?.apiKey ?? '');
+  const [sttBaseUrl, setSttBaseUrl] = useState(sttConfig?.baseUrl ?? '');
   const [sttLanguage, setSttLanguage] = useState(sttConfig?.language ?? '');
   const [sttModel, setSttModel] = useState(sttConfig?.model ?? '');
   const [isSaving, setIsSaving] = useState(false);
@@ -73,15 +76,37 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const buildLabel = getBuildLabel();
   const platformInfo = getPlatformInfo();
 
+  // Switching provider shows that provider's saved values, never another provider's key or model.
+  const selectProvider = (id: ProviderId) => {
+    const saved = apiConfig?.provider === id ? apiConfig : null;
+    setSelectedProvider(id);
+    setApiKey(saved?.apiKey ?? '');
+    setBaseUrl(saved?.baseUrl ?? '');
+    setModel(saved?.model ?? '');
+    setAdvancedModel(saved?.advancedModel ?? '');
+  };
+
+  const selectSttProvider = (id: SttProviderId) => {
+    const saved = sttConfig?.provider === id ? sttConfig : null;
+    setSelectedSttProvider(id);
+    setSttApiKey(saved?.apiKey ?? '');
+    setSttBaseUrl(saved?.baseUrl ?? '');
+    setSttLanguage(saved?.language ?? '');
+    setSttModel(saved?.model ?? '');
+  };
+
   useEffect(() => {
     setSelectedProvider(apiConfig?.provider ?? defaultProvider);
     setApiKey(apiConfig?.apiKey ?? '');
     setBaseUrl(apiConfig?.baseUrl ?? '');
+    setModel(apiConfig?.model ?? '');
+    setAdvancedModel(apiConfig?.advancedModel ?? '');
   }, [apiConfig, defaultProvider]);
 
   useEffect(() => {
     setSelectedSttProvider(sttConfig?.provider ?? defaultSttProvider);
     setSttApiKey(sttConfig?.apiKey ?? '');
+    setSttBaseUrl(sttConfig?.baseUrl ?? '');
     setSttLanguage(sttConfig?.language ?? '');
     setSttModel(sttConfig?.model ?? '');
   }, [sttConfig, defaultSttProvider]);
@@ -94,16 +119,25 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const selectedMetadata = availableProviders.find(p => p.id === selectedProvider) || availableProviders[0];
   const requiresBaseUrl = Boolean(selectedMetadata?.allowsCustomBaseUrl);
+  const keyRequired = selectedMetadata?.requiresApiKey ?? true;
+  const canSaveApi = !keyRequired || apiKey.trim().length > 0;
   const selectedSttMetadata = availableSttProviders.find(p => p.id === selectedSttProvider) || availableSttProviders[0];
+  const sttKeyRequired = selectedSttMetadata?.requiresApiKey ?? true;
+  const canSaveStt = !sttKeyRequired || sttApiKey.trim().length > 0;
+  const inputClass = 'w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100';
+  const labelClass = 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1';
+  const freeBadge = <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">Free</span>;
 
   const handleSave = async () => {
-    if (!apiKey.trim()) return;
+    if (!canSaveApi) return;
     setIsSaving(true);
     try {
       await onSaveApiConfig({
         provider: selectedProvider,
         apiKey: apiKey.trim(),
         baseUrl: baseUrl.trim() || undefined,
+        model: model.trim() || undefined,
+        advancedModel: advancedModel.trim() || undefined,
       });
     } finally {
       setIsSaving(false);
@@ -111,12 +145,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleSaveStt = async () => {
-    if (!sttApiKey.trim()) return;
+    if (!canSaveStt) return;
     setIsSavingStt(true);
     try {
       await onSaveSttConfig({
         provider: selectedSttProvider,
         apiKey: sttApiKey.trim(),
+        baseUrl: selectedSttMetadata?.allowsCustomBaseUrl ? sttBaseUrl.trim() || undefined : undefined,
         language: sttLanguage.trim() || undefined,
         model: sttModel.trim() || undefined,
       });
@@ -153,49 +188,80 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           <section>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">AI Provider</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              IntelliNote runs entirely on your credentials. Choose your preferred provider and paste your API key below. Keys are stored in secure storage on native builds. Browser storage is optional and must be explicitly enabled below.
+              IntelliNote runs on your own credentials. Pick a provider, paste its key, and optionally choose models. Options marked Free cost nothing. Keys are stored in secure storage on native builds; browser storage is optional and must be enabled below.
             </p>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Provider</label>
+                <label className={labelClass}>Provider</label>
                 <select
                   value={selectedProvider}
-                  onChange={(e) => setSelectedProvider(e.target.value as ProviderId)}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  onChange={(e) => selectProvider(e.target.value as ProviderId)}
+                  className={inputClass}
                 >
                   {availableProviders.map(provider => (
-                    <option key={provider.id} value={provider.id}>{provider.label}</option>
+                    <option key={provider.id} value={provider.id}>
+                      {provider.label}{provider.isFree ? ' (Free)' : ''}
+                    </option>
                   ))}
                 </select>
                 {selectedMetadata && (
                   <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                    <p>{selectedMetadata.description}</p>
+                    <p>{selectedMetadata.description}{selectedMetadata.isFree && freeBadge}</p>
                     <a href={selectedMetadata.docsUrl} target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline">
-                      Provider documentation
+                      Models & documentation
                     </a>
                   </div>
                 )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{selectedMetadata?.keyLabel ?? 'API Key'}</label>
+                <label className={labelClass}>{selectedMetadata?.keyLabel ?? 'API Key'}{!keyRequired && ' (optional)'}</label>
                 <input
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder={selectedMetadata?.placeholder ?? 'Paste your API key'}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  className={inputClass}
                 />
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>Model</label>
+                  <input
+                    type="text"
+                    list="ai-model-suggestions"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder={selectedMetadata?.defaultModel}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Intelligence Mode model</label>
+                  <input
+                    type="text"
+                    list="ai-model-suggestions"
+                    value={advancedModel}
+                    onChange={(e) => setAdvancedModel(e.target.value)}
+                    placeholder={selectedMetadata?.defaultAdvancedModel}
+                    className={inputClass}
+                  />
+                </div>
+                <datalist id="ai-model-suggestions">
+                  {selectedMetadata?.suggestedModels.map(id => <option key={id} value={id} />)}
+                </datalist>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">Pick a suggestion or type any model ID the provider offers. Leave empty to use the default shown.</p>
               {requiresBaseUrl && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Custom Base URL (optional)</label>
+                  <label className={labelClass}>Base URL (optional)</label>
                   <input
                     type="text"
                     value={baseUrl}
                     onChange={(e) => setBaseUrl(e.target.value)}
-                    placeholder="https://api.openai.com/v1"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                    placeholder={selectedMetadata?.defaultBaseUrl}
+                    className={inputClass}
                   />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Your API key is sent to this URL. Only enter endpoints you trust; plain http:// is allowed only for localhost.</p>
                 </div>
               )}
               {selectedMetadata?.notes && (
@@ -215,76 +281,107 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           <section>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Transcription Provider</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Configure streaming transcription credentials for live lecture capture. This is separate from your AI provider.
+              Powers live lecture transcription. Separate from your AI provider. Whisper is free: use Groq&apos;s free tier, or run an open-source Whisper server on your own computer.
             </p>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Provider</label>
+                <label className={labelClass}>Provider</label>
                 <select
                   value={selectedSttProvider}
-                  onChange={(e) => setSelectedSttProvider(e.target.value as SttProviderId)}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  onChange={(e) => selectSttProvider(e.target.value as SttProviderId)}
+                  className={inputClass}
                 >
                   {availableSttProviders.map(provider => (
-                    <option key={provider.id} value={provider.id}>{provider.label}</option>
+                    <option key={provider.id} value={provider.id}>
+                      {provider.label}{provider.isFree ? ' (Free)' : ''}
+                    </option>
                   ))}
                 </select>
                 {selectedSttMetadata && (
                   <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                    <p>{selectedSttMetadata.description}</p>
+                    <p>{selectedSttMetadata.description}{selectedSttMetadata.isFree && freeBadge}</p>
                     <a href={selectedSttMetadata.docsUrl} target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline">
                       Provider documentation
                     </a>
                   </div>
                 )}
               </div>
+              {selectedSttMetadata?.allowsCustomBaseUrl && (
+                <div>
+                  <label className={labelClass}>Endpoint</label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {WHISPER_ENDPOINT_PRESETS.map(preset => (
+                      <button
+                        key={preset.baseUrl}
+                        type="button"
+                        onClick={() => { setSttBaseUrl(preset.baseUrl); setSttModel(preset.model); }}
+                        className={`px-3 py-1 text-xs rounded-md border ${(sttBaseUrl || selectedSttMetadata.defaultBaseUrl) === preset.baseUrl ? 'border-indigo-500 text-indigo-600 dark:text-indigo-300' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300'}`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={sttBaseUrl}
+                    onChange={(e) => setSttBaseUrl(e.target.value)}
+                    placeholder={selectedSttMetadata.defaultBaseUrl}
+                    className={inputClass}
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Your API key is sent to this URL. Only enter endpoints you trust; plain http:// is allowed only for localhost.</p>
+                </div>
+              )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{selectedSttMetadata?.keyLabel ?? 'API Key'}</label>
+                <label className={labelClass}>{selectedSttMetadata?.keyLabel ?? 'API Key'}{!sttKeyRequired && ' (optional)'}</label>
                 <input
                   type="password"
                   value={sttApiKey}
                   onChange={(e) => setSttApiKey(e.target.value)}
                   placeholder={selectedSttMetadata?.placeholder ?? 'Paste your transcription API key'}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                  className={inputClass}
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Language (optional)</label>
+                  <label className={labelClass}>Language (optional)</label>
                   <input
                     type="text"
                     value={sttLanguage}
                     onChange={(e) => setSttLanguage(e.target.value)}
                     placeholder="en-US"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                    className={inputClass}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Model (optional)</label>
+                  <label className={labelClass}>Model (optional)</label>
                   <input
                     type="text"
+                    list="stt-model-suggestions"
                     value={sttModel}
                     onChange={(e) => setSttModel(e.target.value)}
-                    placeholder="nova-2"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+                    placeholder={selectedSttMetadata?.defaultModel}
+                    className={inputClass}
                   />
+                  <datalist id="stt-model-suggestions">
+                    {selectedSttMetadata?.suggestedModels.map(id => <option key={id} value={id} />)}
+                  </datalist>
                 </div>
               </div>
               {selectedSttMetadata?.notes && (
                 <p className="text-xs text-gray-500 dark:text-gray-400">{selectedSttMetadata.notes}</p>
               )}
               <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg flex items-center justify-between">
-                <span className="font-medium text-gray-800 dark:text-gray-200">Streaming Status:</span>
-                {sttApiKey.trim() ? (
-                  <span className="text-green-600 dark:text-green-400 font-semibold px-2 py-1 bg-green-100 dark:bg-green-900 rounded-md">Configured</span>
+                <span className="font-medium text-gray-800 dark:text-gray-200">Transcription Status:</span>
+                {canSaveStt ? (
+                  <span className="text-green-600 dark:text-green-400 font-semibold px-2 py-1 bg-green-100 dark:bg-green-900 rounded-md">Ready to save</span>
                 ) : (
-                  <span className="text-yellow-600 dark:text-yellow-400 font-semibold px-2 py-1 bg-yellow-100 dark:bg-yellow-900 rounded-md">Missing</span>
+                  <span className="text-yellow-600 dark:text-yellow-400 font-semibold px-2 py-1 bg-yellow-100 dark:bg-yellow-900 rounded-md">Missing key</span>
                 )}
               </div>
               <div className="flex justify-end">
                 <button
                   onClick={handleSaveStt}
-                  disabled={!sttApiKey.trim() || isSavingStt}
+                  disabled={!canSaveStt || isSavingStt}
                   className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSavingStt ? 'Saving...' : 'Save Transcription Settings'}
@@ -449,7 +546,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
             <button
               onClick={handleSave}
-              disabled={!apiKey.trim() || isSaving}
+              disabled={!canSaveApi || isSaving}
               className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSaving ? 'Saving...' : 'Save API Settings'}

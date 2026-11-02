@@ -1,8 +1,11 @@
-export type SttProviderId = 'deepgram';
+export type SttProviderId = 'deepgram' | 'whisper';
 
 export interface SttConfig {
   provider: SttProviderId;
+  /** Empty for keyless endpoints (e.g. a local Whisper server). */
   apiKey: string;
+  /** OpenAI-compatible endpoint for the Whisper provider. */
+  baseUrl?: string;
   language?: string;
   model?: string;
 }

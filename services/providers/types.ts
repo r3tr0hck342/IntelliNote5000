@@ -11,6 +11,15 @@ export interface ProviderMetadata {
     notes?: string;
     supportsLiveTranscription: boolean;
     allowsCustomBaseUrl?: boolean;
+    /** Shown as a "Free" badge in Settings. */
+    isFree?: boolean;
+    /** False for local providers such as Ollama. */
+    requiresApiKey: boolean;
+    defaultBaseUrl?: string;
+    defaultModel: string;
+    defaultAdvancedModel: string;
+    /** Suggestions for the model picker; any other model ID can still be typed in. */
+    suggestedModels: string[];
 }
 
 export interface AiChatChunk {

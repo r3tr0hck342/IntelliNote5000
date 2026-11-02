@@ -12,10 +12,10 @@ import { processTranscript, generateFlashcards, generateTags, getChatResponseStr
 import { App as CapacitorApp } from '@capacitor/app';
 import mermaid from 'mermaid';
 import { ApiConfig, loadApiConfig, persistApiConfig, clearStoredApiConfig } from './utils/apiConfig';
-import { DEFAULT_PROVIDER_ID, PROVIDER_METADATA } from './services/providers';
+import { DEFAULT_PROVIDER_ID, PROVIDER_METADATA, isApiConfigReady } from './services/providers';
 import { SttConfig } from './types/stt';
 import { loadSttConfig, persistSttConfig, clearStoredSttConfig } from './utils/transcriptionConfig';
-import { STT_PROVIDER_METADATA } from './services/stt';
+import { STT_PROVIDER_METADATA, isSttConfigReady } from './services/stt';
 import { buildTranscriptText, createId, normalizeImportedTranscript } from './utils/transcript';
 import { loadPersistedSessions, persistSessions } from './utils/sessionStorage';
 import { deleteRecording } from './utils/localDb';
@@ -57,8 +57,8 @@ const App: React.FC = () => {
   const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(loadDiagnosticsPreference());
   const [autoGenerationConfig, setAutoGenerationConfig] = useState(loadAutoGenerationConfig());
   const [credentialFallbackEnabled, setCredentialFallbackEnabled] = useState(getCredentialFallbackPreference());
-  const isApiKeyReady = Boolean(apiConfig?.apiKey);
-  const isSttKeyReady = Boolean(sttConfig?.apiKey);
+  const isApiKeyReady = isApiConfigReady(apiConfig);
+  const isSttKeyReady = isSttConfigReady(sttConfig);
   const sessionsRef = useRef<StudySession[]>([]);
   const sessionsLoadedRef = useRef(false);
   const persistFailedRef = useRef(false);
@@ -180,8 +180,8 @@ const App: React.FC = () => {
   const handleExportDiagnostics = useCallback(() => {
     exportDiagnosticsBundle({
       providerConfigPresence: {
-        aiConfigured: Boolean(apiConfig?.apiKey),
-        sttConfigured: Boolean(sttConfig?.apiKey),
+        aiConfigured: isApiConfigReady(apiConfig),
+        sttConfigured: isSttConfigReady(sttConfig),
       },
     });
   }, [apiConfig, sttConfig]);

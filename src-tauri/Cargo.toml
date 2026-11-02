@@ -16,6 +16,7 @@ tauri = { version = "2", features = [] }
 keyring = "2.3"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-http = "2.7.0"
 
 [features]
 default = ["custom-protocol"]

@@ -1,6 +1,6 @@
 import { ApiConfig, getCachedApiConfig } from './apiConfig';
 import { ProviderId } from '../types/ai';
-import { DEFAULT_PROVIDER_ID } from '../services/providers';
+import { DEFAULT_PROVIDER_ID, isApiConfigReady } from '../services/providers';
 
 const getRuntimeInjectedConfig = (): ApiConfig | null => {
     if (typeof window === 'undefined') return null;
@@ -43,7 +43,7 @@ export const getActiveApiConfig = (): ApiConfig | null => {
 
 export const getRequiredApiConfig = (): ApiConfig => {
     const config = getActiveApiConfig();
-    if (!config || !config.apiKey) {
+    if (!isApiConfigReady(config)) {
         throw new Error("AI provider not configured. Open Settings to add an API key.");
     }
     return config;

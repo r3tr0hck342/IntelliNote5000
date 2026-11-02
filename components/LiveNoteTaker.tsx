@@ -3,7 +3,7 @@ import { MicIcon, StopIcon, PauseIcon, PlayIcon } from './icons';
 import { LectureAsset, StudySession, TranscriptSegment } from '../types';
 import type { StreamingSttConfig } from '../types/stt';
 import { getRequiredSttConfig } from '../utils/transcriptionConfig';
-import { createStreamingSttProvider, transcribeRecordedAudio } from '../services/stt';
+import { createStreamingSttProvider, transcribeRecordedAudio, STT_PROVIDER_METADATA } from '../services/stt';
 import { buildTranscriptText, createId, finalizeSegment, mergeFinalSegments, upsertInterimSegment } from '../utils/transcript';
 import { logEvent } from '../utils/logger';
 import { pushToast } from '../utils/toastStore';
@@ -168,6 +168,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                 if (!provider) return;
                 const session = provider.createSession(streamConfig, {
                     onInterim: (result) => {
+                        if (activeAssetIdRef.current !== assetId) return;
                         const interimId = result.utteranceId
                             ? `segment-interim-${result.utteranceId}`
                             : interimSegmentIdRef.current ?? createId('segment-interim');
@@ -190,6 +191,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                         scheduleInterimFlush();
                     },
                     onFinal: (result) => {
+                        if (activeAssetIdRef.current !== assetId) return;
                         const createdAt = new Date().toISOString();
                         const segment: TranscriptSegment = {
                             id: createId('segment-final'),
@@ -306,7 +308,9 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             audioContextRef.current.close();
         }
 
-        streamingSessionRef.current?.stop();
+        // Chunked providers (Whisper) deliver the last chunk's text after stop(), so finalize once it settles.
+        const sessionStopped = streamingSessionRef.current?.stop().catch(() => undefined) ?? Promise.resolve();
+        const stoppedAssetId = activeAssetIdRef.current;
         streamingSessionRef.current = null;
         streamingProviderRef.current = null;
         if (timerRef.current) {
@@ -334,7 +338,8 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             mediaRecorderRef.current.stop();
         }
         
-        if (!isError) {
+        if (!isError) sessionStopped.then(() => {
+            if (activeAssetIdRef.current !== stoppedAssetId) return; // a new recording already started
             const interimSegment = segmentsRef.current.find(segment => !segment.isFinal);
             if (interimSegment && activeAssetIdRef.current) {
                 const createdAt = new Date().toISOString();
@@ -351,7 +356,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             }
             segmentsRef.current = [];
             setSegments([]);
-        }
+        });
 
         if (connectionStatus !== 'error') {
              setConnectionStatus('idle');
@@ -472,13 +477,14 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             const streamConfig: StreamingSttConfig = {
                 sampleRate: TARGET_SAMPLE_RATE,
                 language: sttConfig.language ?? 'en-US',
-                model: sttConfig.model ?? 'nova-2',
+                model: sttConfig.model?.trim() || STT_PROVIDER_METADATA[sttConfig.provider]?.defaultModel,
                 enableInterimResults: true,
             };
             streamConfigRef.current = streamConfig;
 
             const session = provider.createSession(streamConfig, {
                 onInterim: (result) => {
+                    if (activeAssetIdRef.current !== assetId) return;
                     const interimId = result.utteranceId
                         ? `segment-interim-${result.utteranceId}`
                         : interimSegmentIdRef.current ?? createId('segment-interim');
@@ -501,6 +507,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
                     scheduleInterimFlush();
                 },
                 onFinal: (result) => {
+                    if (activeAssetIdRef.current !== assetId) return;
                     const createdAt = new Date().toISOString();
                     const segment: TranscriptSegment = {
                         id: createId('segment-final'),
@@ -761,7 +768,7 @@ const LiveNoteTaker: React.FC<LiveNoteTakerProps> = ({
             {renderConnectionStatus()}
             <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Live Note Taker</h2>
             <p className="text-gray-600 dark:text-gray-400 mb-8 max-w-lg">
-                Click the microphone to start recording your lecture. Your words will be transcribed in real-time with word-by-word updates.
+                Click the microphone to start recording your lecture. Your words are transcribed live as you speak.
             </p>
 
             <div className="mb-6 w-full max-w-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-left">

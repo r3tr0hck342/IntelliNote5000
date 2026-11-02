@@ -3,6 +3,7 @@ import { LogEntry, LogLevel, clearLogs, subscribeToLogs } from '../utils/logger'
 import { XIcon, TrashIcon } from './icons';
 import type { SttConfig } from '../types/stt';
 import { runSttProbe } from '../services/stt/probe';
+import { isSttConfigReady } from '../services/stt';
 import type { SttProbeSummary } from '../utils/sttProbe';
 import type { DryRunPipelineResult } from '../services/aiService';
 
@@ -33,7 +34,7 @@ const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ isOpen, onClose, st
   useEffect(() => subscribeToLogs(setEntries), []);
 
   const handleRunSttProbe = async () => {
-    if (!sttConfig?.apiKey) {
+    if (!isSttConfigReady(sttConfig)) {
       setSttProbeError('Configure a transcription provider API key first.');
       setSttProbeStatus('error');
       return;
@@ -133,7 +134,7 @@ const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ isOpen, onClose, st
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">Run 10s STT Probe</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">Streams mic audio to Deepgram and reports timing stats.</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">Streams mic audio to your transcription provider and reports timing stats.</div>
             </div>
             <button
               onClick={handleRunSttProbe}

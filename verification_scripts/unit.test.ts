@@ -19,6 +19,12 @@ import type { LegacyLecture } from '../types.ts';
 import { redactSensitiveData, redactSensitiveText } from '../utils/redaction.ts';
 import { buildDiagnosticsBundle } from '../utils/diagnosticsBundle.ts';
 import { createDeepgramProvider } from '../services/stt/deepgramProvider.ts';
+import { createProvider, isApiConfigReady, PROVIDER_METADATA } from '../services/providers/index.ts';
+import { parseFlashcards, parseTags, resolveModel } from '../services/providers/shared.ts';
+import { isSttConfigReady } from '../services/stt/index.ts';
+import { createWhisperProvider, encodeWav, toSegments, toWhisperLanguage } from '../services/stt/whisperProvider.ts';
+import { assertSecureEndpoint, httpFetch } from '../utils/http.ts';
+import { GenerationMode } from '../types.ts';
 
 const testTranscriptReconciliation = () => {
   const baseSegment = {
@@ -161,6 +167,10 @@ const testDryRunPipeline = async () => {
     docsUrl: 'https://example.com',
     keyLabel: 'Mock Key',
     supportsLiveTranscription: false,
+    requiresApiKey: true,
+    defaultModel: 'mock-fast',
+    defaultAdvancedModel: 'mock-pro',
+    suggestedModels: [],
   };
   const mockProvider: AiProvider = {
     id: 'openai',
@@ -286,6 +296,153 @@ const testDeepgramZeroTimestamps = async () => {
   }
 };
 
+// Captures every fetch made by the code under test and answers with `respond`.
+const withMockFetch = async (
+  respond: (url: string, init: RequestInit) => unknown,
+  body: (calls: { url: string; init: RequestInit }[]) => Promise<void>
+) => {
+  const realFetch = globalThis.fetch;
+  const calls: { url: string; init: RequestInit }[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const url = input instanceof Request ? input.url : String(input);
+    calls.push({ url, init });
+    return new Response(JSON.stringify(respond(url, init)), { headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  try {
+    await body(calls);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+};
+
+const headerValue = (init: RequestInit, name: string) => new Headers(init.headers).get(name);
+const transcript = [{ id: 's1', assetId: 'a1', startMs: 0, endMs: 1, text: 'Cells divide by mitosis.', isFinal: true, createdAt: '' }];
+
+const testModelParsingAndResolution = () => {
+  assert.deepEqual(
+    parseFlashcards('Sure! Here they are:\n```json\n[{"front":"Q","back":"A"},{"front":1}]\n```'),
+    [{ front: 'Q', back: 'A' }],
+    'Fenced JSON with extra text parses; malformed cards are dropped'
+  );
+  assert.deepEqual(parseTags('["biology", "", 3, "cells"]'), ['biology', 'cells']);
+  assert.throws(() => parseTags('no json here'));
+
+  const meta = PROVIDER_METADATA.openai;
+  assert.equal(resolveModel({ provider: 'openai', apiKey: 'k' }, meta), meta.defaultModel);
+  assert.equal(resolveModel({ provider: 'openai', apiKey: 'k' }, meta, { useIntelligenceMode: true }), meta.defaultAdvancedModel);
+  assert.equal(resolveModel({ provider: 'openai', apiKey: 'k', model: ' gpt-4.1 ' }, meta), 'gpt-4.1');
+  assert.equal(resolveModel({ provider: 'openai', apiKey: 'k', advancedModel: 'o3' }, meta, { useIntelligenceMode: true }), 'o3');
+};
+
+const testReadiness = () => {
+  assert.equal(isApiConfigReady({ provider: 'ollama', apiKey: '' }), true, 'Ollama needs no key');
+  assert.equal(isApiConfigReady({ provider: 'openai', apiKey: '  ' }), false);
+  assert.equal(isApiConfigReady(null), false);
+  assert.equal(isSttConfigReady({ provider: 'whisper', apiKey: '' }), true, 'A local Whisper server needs no key');
+  assert.equal(isSttConfigReady({ provider: 'deepgram', apiKey: '' }), false);
+  Object.values(PROVIDER_METADATA).forEach(meta => {
+    assert.ok(meta.defaultModel && meta.defaultAdvancedModel, `${meta.id} has default models`);
+  });
+};
+
+const testOpenAiCompatibleRouting = async () => {
+  await withMockFetch(
+    () => ({ choices: [{ message: { content: ' Notes ' } }] }),
+    async (calls) => {
+      const ollama = createProvider({ provider: 'ollama', apiKey: '' });
+      assert.equal(ollama.id, 'ollama');
+      assert.equal(await ollama.processTranscript(transcript, GenerationMode.Notes, []), 'Notes');
+      assert.equal(calls[0].url, 'http://localhost:11434/v1/chat/completions');
+      assert.equal(headerValue(calls[0].init, 'authorization'), null, 'No auth header without a key');
+      assert.equal(JSON.parse(String(calls[0].init.body)).model, 'llama3.2');
+
+      const router = createProvider({ provider: 'openrouter', apiKey: 'or-key', model: 'x/y:free' });
+      await router.processTranscript(transcript, GenerationMode.Notes, []);
+      assert.equal(calls[1].url, 'https://openrouter.ai/api/v1/chat/completions');
+      assert.equal(headerValue(calls[1].init, 'authorization'), 'Bearer or-key');
+      const body = JSON.parse(String(calls[1].init.body));
+      assert.equal(body.model, 'x/y:free');
+      assert.equal('temperature' in body, false, 'No temperature: newer OpenAI models reject it');
+    }
+  );
+};
+
+const anthropicMessage = (text: string, stopReason = 'end_turn') => ({
+  id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-opus-5-5',
+  content: [{ type: 'text', text }], stop_reason: stopReason, stop_sequence: null,
+  usage: { input_tokens: 1, output_tokens: 1 },
+});
+
+const testAnthropicProvider = async () => {
+  await withMockFetch(
+    () => anthropicMessage('```json\n["cells", "mitosis"]\n```'),
+    async (calls) => {
+      const claude = createProvider({ provider: 'anthropic', apiKey: 'sk-ant-test' });
+      assert.deepEqual(await claude.generateTags(transcript, []), ['cells', 'mitosis']);
+      const body = JSON.parse(String(calls[0].init.body));
+      assert.equal(body.model, 'claude-opus-5-5');
+      assert.equal(body.fallbacks, 'default', 'Refusal fallback on for Opus 5.5');
+      assert.equal('temperature' in body, false);
+      assert.match(headerValue(calls[0].init, 'anthropic-beta') ?? '', /server-side-fallback-2026-07-01/);
+      assert.equal(headerValue(calls[0].init, 'authorization'), 'Bearer sk-ant-test', 'SDK 1.x sends the key as a Bearer token');
+      assert.ok(calls[0].url.startsWith('https://api.anthropic.com/'), 'Pinned base URL ignores ANTHROPIC_BASE_URL in the environment');
+
+      await claude.processTranscript(transcript, GenerationMode.Notes, [], { useIntelligenceMode: true });
+      assert.deepEqual(JSON.parse(String(calls[1].init.body)).output_config, { effort: 'high' });
+
+      const haiku = createProvider({ provider: 'anthropic', apiKey: 'k', model: 'claude-haiku-5-5' });
+      await haiku.processTranscript(transcript, GenerationMode.Notes, []);
+      assert.equal('fallbacks' in JSON.parse(String(calls[2].init.body)), false, 'No fallbacks on models that reject them');
+    }
+  );
+  await withMockFetch(
+    () => anthropicMessage('', 'refusal'),
+    async () => {
+      const claude = createProvider({ provider: 'anthropic', apiKey: 'k' });
+      await assert.rejects(claude.processTranscript(transcript, GenerationMode.Notes, []), /declined/);
+    }
+  );
+};
+
+const testEndpointSafetyAndWhisperParsing = async () => {
+  assert.throws(() => assertSecureEndpoint('http://evil.example.com/v1'), /plain HTTP/);
+  assert.doesNotThrow(() => assertSecureEndpoint('http://localhost:11434/v1'));
+  assert.doesNotThrow(() => assertSecureEndpoint('http://127.0.0.1:8000/v1'));
+  assert.doesNotThrow(() => assertSecureEndpoint('https://api.groq.com/openai/v1'));
+  await assert.rejects(httpFetch('http://evil.example.com/v1/chat/completions'), /plain HTTP/);
+  // A hostile or buggy server returning non-string fields must not crash the recorder.
+  assert.deepEqual(toSegments({ text: 42, segments: [{ text: null, start: 'x' }, { text: ' ok ', start: 1 }] } as never, 1000),
+    [{ text: 'ok', startMs: 2000, endMs: undefined, isFinal: true }]);
+};
+
+const testWhisperProvider = async () => {
+  assert.equal(toWhisperLanguage('en-US'), 'en');
+  assert.equal(toWhisperLanguage(undefined), undefined);
+  const wav = encodeWav(new Int16Array(16000), 16000);
+  assert.equal(wav.size, 44 + 32000, 'WAV = 44-byte header + 2 bytes per sample');
+  assert.equal(new TextDecoder().decode(new Uint8Array(await wav.slice(0, 4).arrayBuffer())), 'RIFF');
+
+  await withMockFetch(
+    () => ({ text: 'Hello class. Today: cells.', segments: [{ text: ' Hello class.', start: 0, end: 1.2 }, { text: 'Today: cells.', start: 1.2, end: 3 }] }),
+    async (calls) => {
+      const whisper = createWhisperProvider({ provider: 'whisper', apiKey: 'gsk_test', language: 'en-US' });
+      const result = await whisper.transcribeAudio!({ blob: new Blob([new Uint8Array(4)]), mimeType: 'audio/webm' });
+      assert.equal(calls[0].url, 'https://api.groq.com/openai/v1/audio/transcriptions');
+      assert.equal(headerValue(calls[0].init, 'authorization'), 'Bearer gsk_test');
+      const form = calls[0].init.body as FormData;
+      assert.equal(form.get('model'), 'whisper-large-v3-turbo');
+      assert.equal(form.get('language'), 'en');
+      assert.equal(form.get('response_format'), 'verbose_json');
+      assert.deepEqual(result.segments.map(s => [s.text, s.startMs, s.endMs]), [['Hello class.', 0, 1200], ['Today: cells.', 1200, 3000]]);
+
+      const local = createWhisperProvider({ provider: 'whisper', apiKey: '', baseUrl: 'http://localhost:8000/v1/' });
+      await local.transcribeAudio!({ blob: new Blob([new Uint8Array(4)]), mimeType: 'audio/webm' });
+      assert.equal(calls[1].url, 'http://localhost:8000/v1/audio/transcriptions');
+      assert.equal(headerValue(calls[1].init, 'authorization'), null);
+    }
+  );
+};
+
 const run = async () => {
   testTranscriptReconciliation();
   testSessionMigration();
@@ -295,6 +452,12 @@ const run = async () => {
   testDiagnosticsBundleShape();
   await testDryRunPipeline();
   await testDeepgramZeroTimestamps();
+  testModelParsingAndResolution();
+  testReadiness();
+  await testOpenAiCompatibleRouting();
+  await testAnthropicProvider();
+  await testWhisperProvider();
+  await testEndpointSafetyAndWhisperParsing();
   console.log('unit.test.ts: all tests passed');
 };
 

@@ -1,12 +1,20 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Least-privilege permissions: export notes and recordings via the native save dialog.",
+  "description": "Least-privilege permissions: export notes and recordings via the native save dialog; call user-configured AI/transcription endpoints (HTTPS anywhere, plain HTTP only to this machine).",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "dialog:allow-save",
     "fs:allow-write-text-file",
-    "fs:allow-write-file"
+    "fs:allow-write-file",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://*" },
+        { "url": "http://localhost:*" },
+        { "url": "http://127.0.0.1:*" }
+      ]
+    }
   ]
 }

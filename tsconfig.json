@@ -27,5 +27,6 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "resolveJsonModule": true
-  }
+  },
+  "exclude": ["node_modules", "dist", "src-tauri"]
 }

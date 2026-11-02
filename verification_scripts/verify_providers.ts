@@ -9,9 +9,13 @@ const REQUIRED_FIELDS: Array<keyof ProviderMetadata> = [
     'docsUrl',
     'keyLabel',
     'supportsLiveTranscription',
+    'requiresApiKey',
+    'defaultModel',
+    'defaultAdvancedModel',
+    'suggestedModels',
 ];
 
-const REQUIRED_PROVIDER_IDS: ProviderId[] = ['gemini', 'openai'];
+const REQUIRED_PROVIDER_IDS: ProviderId[] = ['gemini', 'anthropic', 'openai', 'openrouter', 'ollama'];
 
 const assert = (condition: boolean, message: string) => {
     if (!condition) {

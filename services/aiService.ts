@@ -1,6 +1,6 @@
 import { GenerationMode, Flashcard, Handout, TranscriptSegment, ChatMessage, AiEditMode } from '../types';
 import { getActiveApiConfig, getRequiredApiConfig } from '../utils/env';
-import { createProvider, DEFAULT_PROVIDER_ID } from './providers';
+import { createProvider, DEFAULT_PROVIDER_ID, isApiConfigReady } from './providers';
 import { AiChatChunk } from './providers/types';
 import { mapProviderError, getProviderErrorSummary } from './providers/errors';
 import { pushToast } from '../utils/toastStore';
@@ -11,7 +11,7 @@ import type { AiProvider, ProviderRuntimeOptions } from './providers/types';
 const getProvider = (options?: { allowMissingKey?: boolean; providerId?: ProviderId }): AiProvider => {
     if (options?.allowMissingKey) {
         const activeConfig = getActiveApiConfig();
-        if (activeConfig?.apiKey) {
+        if (isApiConfigReady(activeConfig)) {
             return createProvider(activeConfig);
         }
         const fallbackProviderId = options?.providerId ?? DEFAULT_PROVIDER_ID;

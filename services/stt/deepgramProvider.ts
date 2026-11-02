@@ -1,6 +1,7 @@
 import { SttConfig, StreamingSttConfig, SttFinalResult, SttInterimResult, SttRecordedAudio, SttTranscriptResult } from '../../types/stt';
 import { StreamingSttProvider, StreamingSttSession, StreamingSttCallbacks } from './types';
 import { createSttError, mapSttError } from './errors';
+import { httpFetch } from '../../utils/http';
 
 const buildDeepgramUrl = (config: StreamingSttConfig) => {
   const params = new URLSearchParams({
@@ -166,7 +167,7 @@ export const createDeepgramProvider = (config: SttConfig): StreamingSttProvider 
   return {
     createSession: (streamConfig, callbacks) => createDeepgramSession(config, streamConfig, callbacks),
     transcribeAudio: async (audio: SttRecordedAudio, configOverride?: Pick<StreamingSttConfig, 'language' | 'model'>) => {
-      const response = await fetch(buildRecordedUrl(configOverride), {
+      const response = await httpFetch(buildRecordedUrl(configOverride), {
         method: 'POST',
         headers: {
           Authorization: `Token ${config.apiKey}`,

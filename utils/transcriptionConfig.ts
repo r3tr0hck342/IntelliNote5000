@@ -1,5 +1,6 @@
 import { SttConfig, SttProviderId } from '../types/stt';
 import { transcriptionStorage } from './transcriptionStorage';
+import { isSttConfigReady } from '../services/stt';
 
 let inMemoryConfig: SttConfig | null = null;
 
@@ -90,7 +91,7 @@ export const getActiveSttConfig = (): SttConfig | null => {
 
 export const getRequiredSttConfig = (): SttConfig => {
   const config = getActiveSttConfig();
-  if (!config || !config.apiKey) {
+  if (!isSttConfigReady(config)) {
     throw new Error('Transcription provider not configured. Open Settings to add a transcription API key.');
   }
   return config;

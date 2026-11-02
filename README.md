@@ -23,7 +23,8 @@ Record a lecture, watch the transcript appear word by word, then get organized n
 
 | | |
 |---|---|
-| 🎙️ **Live transcription** | Streams your mic to Deepgram and shows text word by word, with interim results, timestamps, confidence, and speaker labels. |
+| 🎙️ **Live transcription** | **Free** with open-source Whisper (Groq's free tier or your own local server), or word-by-word with Deepgram. |
+| 🤖 **Any AI you like** | **Free:** Gemini, OpenRouter `:free` models, Ollama (local). **Paid:** Claude, OpenAI, Mistral, DeepSeek, Grok. Pick any model, plus a stronger one for *Intelligence Mode*. |
 | 📝 **Organized notes** | Turns the transcript plus any handouts into clean, editable rich-text notes. |
 | 📚 **Study guide & test questions** | Summary, key concepts, outline, multiple-choice, short-answer, and essay questions. |
 | 🃏 **Flashcards** | Choose how many cards you want, then flip through them in a built-in viewer. |
@@ -63,11 +64,26 @@ flowchart LR
     App <-->|API keys| KC[(OS keychain)]
 ```
 
-| Provider | Used for | Models |
+**Transcription**
+
+| Provider | Cost | How it works |
 |---|---|---|
-| **Deepgram** | Live streaming + after-the-fact transcription | `nova-2` by default (configurable) |
-| **Google Gemini** | All AI features, plus web-grounded chat | Flash Lite / 2.5 Flash, or 2.5 Pro in *Intelligence Mode* |
-| **OpenAI-compatible** | All AI features | `gpt-4o-mini`, or `gpt-4o` in *Intelligence Mode*. Supports a custom base URL (web only, see [roadmap](docs/distribution-roadmap.md)). |
+| **Whisper** via [Groq](https://console.groq.com) | 🆓 free tier | Open-source Whisper in the cloud; live text every ~8 s |
+| **Whisper** on your machine ([speaches](https://github.com/speaches-ai/speaches)) | 🆓 free, offline | `docker run -p 8000:8000 ghcr.io/speaches-ai/speaches:latest-cpu`, then pick the *Local* preset |
+| **Deepgram** | paid (starter credit) | True word-by-word streaming |
+
+**AI (notes, guides, flashcards, chat)**
+
+| Provider | Cost | Default models (normal / Intelligence Mode) |
+|---|---|---|
+| **Google Gemini** | 🆓 free tier | `gemini-flash-lite-latest` / `gemini-2.5-pro` · web-grounded chat |
+| **OpenRouter** | 🆓 `:free` models | `meta-llama/llama-3.3-70b-instruct:free` / `deepseek/deepseek-chat-v3-0324:free` |
+| **Ollama** | 🆓 local, offline | `llama3.2` / `llama3.1:8b` |
+| **Anthropic Claude** | paid | `claude-opus-5-5` (Intelligence Mode raises effort) · Sonnet 5.5, Haiku 5.5, Fable 5.1 available |
+| **OpenAI** | paid | `gpt-4o-mini` / `gpt-4o` · custom base URL for proxies |
+| **Mistral · DeepSeek · xAI Grok** | paid | `mistral-small` / `mistral-large` · `deepseek-chat` / `deepseek-reasoner` · `grok-3-mini` / `grok-3` |
+
+Every provider accepts **any model ID** you type, so new models work without an app update. On desktop, requests go through Tauri's Rust HTTP client, so self-hosted and custom endpoints work there too.
 
 ---
 
@@ -84,8 +100,8 @@ npm run dev            # → http://localhost:1420
 
 Then, in the app:
 
-1. Open **⚙️ Settings → AI Provider**, pick Gemini or OpenAI, and paste your key.
-2. Open **Settings → Transcription Provider** and paste a Deepgram key.
+1. Open **⚙️ Settings → AI Provider** and pick one. Free options: a [Gemini key](https://aistudio.google.com/apikey), an [OpenRouter key](https://openrouter.ai/keys), or [Ollama](https://ollama.com) with no key at all.
+2. Open **Settings → Transcription Provider**, pick **Whisper (open source)**, and paste a free [Groq key](https://console.groq.com/keys), or choose the *Local* preset for your own Whisper server.
 3. Click **New Live Lecture**, allow mic access, and start talking.
 
 > [!TIP]
@@ -217,7 +233,9 @@ Open the Diagnostics panel and check the error code. `auth_failed` means re-save
 <details>
 <summary><b>Live transcription won't connect</b></summary>
 
-Check your Deepgram key, make sure your network allows WebSockets to `api.deepgram.com`, and confirm mic permission. Run the **10-second STT probe** to see where it fails.
+- **Whisper:** check the endpoint and key in Settings. For a local server, make sure it's running (`curl http://localhost:8000/v1/models`). Text appears every ~8 seconds, not word by word.
+- **Deepgram:** check your key and that your network allows WebSockets to `api.deepgram.com`.
+- Run the **10-second STT probe** in Diagnostics to see where it fails.
 </details>
 
 <details>
@@ -247,5 +265,5 @@ Keep the app in the foreground. Recording auto-pauses when the window is hidden 
 Desktop ships first, then phones, then a tablet layout. Planned items include backup export and import, auto-updates, signed installers, and a first-run setup screen. See **[docs/distribution-roadmap.md](docs/distribution-roadmap.md)**.
 
 <div align="center">
-<sub>Built with React, Tauri, and Capacitor · powered by your own AI and transcription keys</sub>
+<sub>Built with React, Tauri, and Capacitor · free with Whisper + Gemini, OpenRouter, or Ollama</sub>
 </div>

@@ -4,29 +4,34 @@ import { formatContext, getPromptForMode, getFlashcardPrompt, getTagPrompt, getC
 import { AiProvider, ProviderMetadata, ProviderRuntimeOptions, AiChatChunk } from './types';
 import { ApiConfig } from '../../utils/apiConfig';
 import { mapProviderError } from './errors';
+import { resolveModel } from './shared';
 
 export const geminiMetadata: ProviderMetadata = {
     id: 'gemini',
     label: 'Google Gemini',
-    description: 'Use Google AI Studio API keys to access Gemini 2.0/2.5 models.',
-    docsUrl: 'https://ai.google.dev/gemini-api/docs',
+    description: 'Gemini models with a Google AI Studio key. The free tier covers the Flash models; chat can also search the web.',
+    docsUrl: 'https://ai.google.dev/gemini-api/docs/models',
     keyLabel: 'Gemini API Key',
-    notes: 'Great for multimodal AI outputs and long-context study workflows.',
+    notes: 'Get a free key at aistudio.google.com. Pro models have much lower free limits than Flash.',
     supportsLiveTranscription: false,
+    isFree: true,
+    requiresApiKey: true,
+    defaultModel: 'gemini-flash-lite-latest',
+    defaultAdvancedModel: 'gemini-2.5-pro',
+    suggestedModels: ['gemini-flash-lite-latest', 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro'],
 };
+
+// Chat used a slightly stronger default than the bulk generators before models became configurable.
+const DEFAULT_CHAT_MODEL = 'gemini-2.5-flash';
 
 export const createGeminiProvider = (config: ApiConfig): AiProvider => {
     const client = new GoogleGenAI({ apiKey: config.apiKey });
 
-    const withThinkingConfig = (options?: ProviderRuntimeOptions) => {
-        if (options?.useIntelligenceMode) {
-            return { thinkingConfig: { thinkingBudget: 32768 } };
-        }
-        return {};
-    };
+    const selectModel = (options?: ProviderRuntimeOptions) => resolveModel(config, geminiMetadata, options);
 
-    const selectModel = (lightweight: string, advanced: string, options?: ProviderRuntimeOptions) =>
-        options?.useIntelligenceMode ? advanced : lightweight;
+    // A 32768-token thinking budget is only valid on Pro models; other models keep their default.
+    const withThinkingConfig = (model: string, options?: ProviderRuntimeOptions) =>
+        options?.useIntelligenceMode && model.includes('pro') ? { thinkingConfig: { thinkingBudget: 32768 } } : {};
 
     return {
         id: 'gemini',
@@ -39,10 +44,11 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
                 if (options?.dryRun) {
                     return `[Dry Run] Gemini process ${mode} would send ${prompt.length} characters.`;
                 }
+                const model = selectModel(options);
                 const response = await client.models.generateContent({
-                    model: selectModel('gemini-flash-lite-latest', 'gemini-2.5-pro', options),
+                    model,
                     contents: prompt,
-                    config: withThinkingConfig(options)
+                    config: withThinkingConfig(model, options)
                 });
                 return response.text;
             } catch (error) {
@@ -60,8 +66,9 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
                         back: `[Dry Run] Gemini flashcards would send ${prompt.length} characters.`,
                     }));
                 }
+                const model = selectModel(options);
                 const response = await client.models.generateContent({
-                    model: selectModel('gemini-flash-lite-latest', 'gemini-2.5-pro', options),
+                    model,
                     contents: prompt,
                     config: {
                         responseMimeType: "application/json",
@@ -76,7 +83,7 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
                                 required: ['front', 'back']
                             }
                         },
-                        ...withThinkingConfig(options),
+                        ...withThinkingConfig(model, options),
                     }
                 });
                 const jsonText = response.text.trim();
@@ -93,7 +100,7 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
                     return ['dry-run', `gemini:${prompt.length}`];
                 }
                 const response = await client.models.generateContent({
-                    model: 'gemini-flash-lite-latest',
+                    model: selectModel(),
                     contents: prompt,
                     config: {
                         responseMimeType: "application/json",
@@ -122,13 +129,16 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
                     { role: 'user', parts: [{ text: message }] }
                 ];
 
+                const model = options?.useIntelligenceMode || config.model?.trim()
+                    ? selectModel(options)
+                    : DEFAULT_CHAT_MODEL;
                 const stream = await client.models.generateContentStream({
-                    model: selectModel('gemini-2.5-flash', 'gemini-2.5-pro', options),
+                    model,
                     contents,
                     config: {
                         systemInstruction: getChatSystemPrompt(context),
                         tools: options?.useSearchGrounding ? [{ googleSearch: {} }] : undefined,
-                        ...withThinkingConfig(options),
+                        ...withThinkingConfig(model, options),
                     }
                 });
 
@@ -153,10 +163,11 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
                 if (options?.dryRun) {
                     return `[Dry Run] Gemini edit ${mode} would send ${prompt.length} characters.`;
                 }
+                const model = selectModel(options);
                 const response = await client.models.generateContent({
-                    model: selectModel('gemini-flash-lite-latest', 'gemini-2.5-pro', options),
+                    model,
                     contents: prompt,
-                    config: withThinkingConfig(options)
+                    config: withThinkingConfig(model, options)
                 });
                 return response.text;
             } catch (error) {

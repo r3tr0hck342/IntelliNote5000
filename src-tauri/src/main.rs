@@ -15,6 +15,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_http::init())
         // Recording is the core feature. Without this the webview's default applies, which
         // denies microphone access on Linux. macOS still shows its system prompt.
         .on_permission_request(|_, kind| match kind {
