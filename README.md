@@ -1,244 +1,251 @@
-INTELLINOTE5000
+<div align="center">
 
-## Run Locally (macOS + Node 20)
+# 🧠 IntelliNote 5000
 
-**Prerequisites**
-- Node.js 20.19+ and npm 10.x (`nvm install 20 && nvm use 20`)
-- macOS Sonoma or newer (for desktop and iOS builds)
-- Rust toolchain (1.77.2+). Tauri CLI v2 is installed via npm.
-- macOS/iOS: Xcode + CLT, CocoaPods (see checklist below)
-- Linux desktop builds: `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev`
+### Your lectures, transcribed live and turned into study material.
 
-**Steps**
-1. Install dependencies: `npm install`
-2. (Optional dev fallback) Copy `.env.example` to `.env.local` and set `VITE_API_KEY`, `VITE_AI_PROVIDER`, and `VITE_AI_BASE_URL` if you want Vite to boot with pre-filled credentials:
-   ```bash
-   cp .env.example .env.local
-   # Add your provider + key. Runtime Settings UI is still the recommended approach.
-   ```
-3. Start the Vite dev server (port 1420, strict): `npm run dev`
-4. Launch `http://localhost:1420`, open **Settings → AI Provider**, choose Gemini or OpenAI, and paste your API key. Keys are stored in secure storage on native builds; browser storage is opt-in and controlled in Settings.
-5. Open **Settings → Transcription Provider** to configure a streaming STT key (Deepgram). This powers real-time, word-by-word transcription with interim results.
-6. Allow microphone access if you plan to use live transcription.
+Record a lecture, watch the transcript appear word by word, then get organized notes, a study guide, practice questions, and flashcards without leaving the app.
 
-### AI Provider Support
+[![CI](https://github.com/r3tr0hck342/IntelliNote5000/actions/workflows/ci.yml/badge.svg)](https://github.com/r3tr0hck342/IntelliNote5000/actions/workflows/ci.yml)
+![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)
+![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=white)
+![Capacitor 8](https://img.shields.io/badge/Capacitor-8-119EFF?logo=capacitor&logoColor=white)
+![Vite 7](https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white)
+![Bring your own key](https://img.shields.io/badge/API%20keys-bring%20your%20own-8A2BE2)
 
-| Provider | Features | Notes |
-| --- | --- | --- |
-| Google Gemini | ✅ Notes, study guide, questions, flashcards, tags, chat | Requires Gemini API key. |
-| OpenAI (Chat Completions-compatible) | ✅ Notes, study guide, questions, flashcards, tags, chat, transcript editing | Uses GPT-4o-mini / GPT-4o by default. Provide a custom base URL if routing through a proxy such as Azure/OpenRouter. |
+**macOS · Windows · Linux · Web** &nbsp;|&nbsp; iOS and Android in progress
 
-### Streaming Transcription (Word-by-Word)
-- **Provider**: Deepgram streaming WebSocket API (interim + final results).
-- Configure in **Settings → Transcription Provider** or via `.env.local` keys.
-- **Audio format**: PCM 16-bit, mono, 16 kHz (captured via Web Audio and streamed as `linear16` frames).
-- Live lecture sessions store interim and final transcript segments (with utterance IDs when available) plus timestamps, confidence, and speaker labels.
-- The recorder saves audio to local storage (IndexedDB) every second, so a crash or closed window keeps what was recorded. If streaming drops, run **Transcribe After Recording** to process the audio via Deepgram’s prerecorded API, or use **Download audio** in the session view to save the file.
-- Sessions are stored in IndexedDB (no ~5 MB browser-storage cap). If a save fails, the app shows an error toast.
-- Reconnect behavior: exponential backoff (up to ~10s) with a capped number of retries; audio capture continues during reconnect attempts.
+</div>
 
-### Transcript Import (Production v1)
-- Use **Upload → Import Transcript** to add `.txt` or `.md` transcripts to a new or existing session.
-- The importer normalizes whitespace, preserves paragraphs, and detects timestamps (`[00:12:03]`, `00:12:03.123`, SRT/VTT cues).
-- Imported transcripts run the same AI pipeline as live sessions (notes, study guide, test questions, flashcards, tags) and show progress + cancellation in the import modal.
+---
 
-### Diagnostics
-- Open the Diagnostics panel from **Settings → Diagnostics**.
-- **Run 10s STT Probe**: Requests microphone access, streams audio to the configured Deepgram provider for 10 seconds, and reports timing stats (time to first interim/final, cadence, reconnects, queue depth). No transcripts are saved; this is strictly a connectivity and latency check.
-- **Dry-run Import Pipeline**: Runs the transcript import normalization + segmentation and triggers the AI pipeline entrypoints without calling external APIs. Use this when API keys are not configured to confirm that notes, study guide, test questions, flashcards, tags, and chat wiring are all connected.
-- **Export Diagnostics Bundle**: Use **Settings → Diagnostics & Storage → Export Diagnostics Bundle** to download a JSON snapshot containing app/build info, platform info, redacted logs, last STT probe stats, and provider configuration presence flags. Share this file with the team when reporting issues.
-- **Reset App State**: Use **Settings → Diagnostics & Storage → Reset App State** to clear local sessions and cached settings. You will be prompted to optionally clear secure storage credentials (API keys).
+## ✨ What it does
 
-### Build Label
-- **Format**:
-  - Production/package builds: `IntelliNote5000 <package.json version> (<gitShortSha|timestamp>)`
-  - Dev builds: `IntelliNote5000 dev (<gitShortSha|timestamp>)`
-- **How it’s generated**: `tools/build-info.mjs` reads `package.json`, attempts `git rev-parse --short HEAD`, and falls back to a UTC timestamp if git metadata is unavailable.
-- **Where it appears**:
-  - **Settings → About** shows the full build label and platform.
-  - **Export Diagnostics Bundle** includes `buildLabel`, `version`, `buildCommit`, and `buildTime`.
-  - `npm run build:info` prints the label in the terminal.
-- **When filing bugs**: Ask testers to open **Settings → About** and copy the build label (plus platform). This helps match issues to the exact build.
+| | |
+|---|---|
+| 🎙️ **Live transcription** | Streams your mic to Deepgram and shows text word by word, with interim results, timestamps, confidence, and speaker labels. |
+| 📝 **Organized notes** | Turns the transcript plus any handouts into clean, editable rich-text notes. |
+| 📚 **Study guide & test questions** | Summary, key concepts, outline, multiple-choice, short-answer, and essay questions. |
+| 🃏 **Flashcards** | Choose how many cards you want, then flip through them in a built-in viewer. |
+| 💬 **Chat with your lecture** | Ask questions answered only from your transcript and handouts. Gemini can also search the web. |
+| ✏️ **AI transcript editing** | Improve readability, format as notes, pull out key topics, summarize a selection, or give your own instruction. |
+| 📎 **Handouts** | Drop in PDF, DOCX, TXT, or MD files. They feed every AI feature. |
+| 📥 **Transcript import** | Paste or upload `.txt`/`.md`. SRT/VTT cues and `[00:12:03]` timestamps are detected automatically. |
+| 🏷️ **Tags & search** | AI-suggested tags, plus sidebar search by title, date, or tag. |
+| 🌗 **Dark & light themes** | Dark by default, with no flash on load. |
 
-Add new providers by creating an adapter in `services/providers/` and surfacing it in Settings.
+## 🛡️ Built not to lose your work
 
-### Secure API Key Storage
-- **Web**: LocalStorage fallback is opt-in via **Settings → Diagnostics & Storage**.
-- **macOS Desktop (Tauri)**: Stored in the macOS Keychain through Tauri commands (`keyring` crate). No API keys are written to disk.
-- **iOS/iPadOS (Capacitor)**: Stored via `capacitor-secure-storage-plugin`, backed by the iOS Keychain. After installing dependencies, run `npx cap sync ios` to copy the plugin into the native project before archiving.
-- **Clear credentials**: Use **Settings → Clear All Credentials** to wipe cached keys and fallback storage.
-- **Logging**: Provider keys are never logged; storage falls back to LocalStorage only when you explicitly opt in.
+- **Audio is saved every second** to local storage while you record. A crash or a closed window keeps everything up to that point.
+- **No 5 MB browser cap.** Sessions and recordings live in IndexedDB, and existing data migrates automatically.
+- **Dropped connection? Recording keeps going.** Streaming reconnects with exponential backoff. If it can't reconnect, **Transcribe After Recording** processes the saved audio instead.
+- **Download audio** for any live recording, through the native save dialog on desktop.
+- **Loud failures.** If a load or save fails, you get an error toast, and saving pauses rather than overwrite good data.
+- **Interruptions handled.** Unplugging the mic, a mute, or switching apps pauses recording and resumes it when possible.
 
-Use `npm run verify:providers` to ensure new provider configurations satisfy the automated checks.
-Use `npm run verify:platforms` to confirm platform permission strings and native config files are in place before packaging native builds.
+## 🔐 Your keys, your data
 
-## Release Verification
-Run the release verification script before packaging native builds:
+- **Bring your own API keys.** No IntelliNote account and no IntelliNote server: requests go straight from your device to the provider.
+- **Keys live in the OS keychain**: the macOS Keychain or equivalent through Tauri, and iOS Keychain or Android Keystore through Capacitor. On the web, browser storage is **opt-in**.
+- **Logs are redacted.** API keys and tokens are stripped before anything is logged or exported.
+- **Hardened desktop shell**: a strict Content Security Policy with no inline scripts, least-privilege Tauri permissions, and AI chat replies rendered as plain text, never as HTML.
 
-```bash
-npm run verify:release
+## 🧩 How it fits together
+
+```mermaid
+flowchart LR
+    Mic([🎙️ Microphone]) -->|16 kHz PCM| DG[Deepgram<br/>streaming STT]
+    Mic -->|every 1 s| IDB[(IndexedDB<br/>sessions + audio)]
+    DG -->|interim + final segments| App[IntelliNote UI<br/>React]
+    Files([📎 Handouts &<br/>transcripts]) --> App
+    App <-->|notes, guides, cards, chat| AI[Gemini or<br/>OpenAI-compatible]
+    App <--> IDB
+    App <-->|API keys| KC[(OS keychain)]
 ```
 
-This verifies native configuration files, permission strings, and required Capacitor/Tauri assets. Run linting, type checks, unit tests, and a production build before cutting a release. Fix any reported errors before cutting a release.
+| Provider | Used for | Models |
+|---|---|---|
+| **Deepgram** | Live streaming + after-the-fact transcription | `nova-2` by default (configurable) |
+| **Google Gemini** | All AI features, plus web-grounded chat | Flash Lite / 2.5 Flash, or 2.5 Pro in *Intelligence Mode* |
+| **OpenAI-compatible** | All AI features | `gpt-4o-mini`, or `gpt-4o` in *Intelligence Mode*. Supports a custom base URL (web only, see [roadmap](docs/distribution-roadmap.md)). |
 
-### CI Release Gate
-Pull requests and pushes to `main` run linting, type checks, unit tests, a production build, and the release verification script via GitHub Actions. This blocks merges unless the project is package-ready.
+---
 
-## Packaging / Distribution
+## 🚀 Quick start
 
-See [docs/distribution-roadmap.md](docs/distribution-roadmap.md) for the desktop → mobile → tablet release plan.
+**You need:** Node.js 20.19+ and npm 10+. For the desktop app, also the Rust toolchain (1.77.2+).
 
-### All desktop platforms (CI)
-Push a `v*` tag (or run **Desktop Release** from the Actions tab). `.github/workflows/desktop-release.yml` builds unsigned macOS, Windows, and Linux installers and attaches them to a draft GitHub Release.
+```bash
+git clone https://github.com/r3tr0hck342/IntelliNote5000.git
+cd IntelliNote5000
+npm install
+npm run dev            # → http://localhost:1420
+```
 
-### macOS (Tauri)
-1. Install deps: `npm install`
-2. Build web assets: `npm run build`
-3. Verify release prerequisites: `npm run verify:release`
-4. **Unsigned/local build**: `npm run tauri:build:unsigned`
-5. **Signed + notarized build**: `npm run tauri:build:signed`
+Then, in the app:
 
-Required environment variables for signed builds:
-- `TAURI_MACOS_SIGNING_IDENTITY` (e.g., `Developer ID Application: Your Company (TEAMID)`)
-- `TAURI_MACOS_PROVIDER_SHORT_NAME` (Apple Team ID)
+1. Open **⚙️ Settings → AI Provider**, pick Gemini or OpenAI, and paste your key.
+2. Open **Settings → Transcription Provider** and paste a Deepgram key.
+3. Click **New Live Lecture**, allow mic access, and start talking.
 
-Optional notarization variables (notarytool):
-- `TAURI_NOTARIZE=1`
-- `APPLE_ID`
-- `APPLE_PASSWORD` (app-specific password)
-- `APPLE_TEAM_ID`
+> [!TIP]
+> No keys yet? Turn on **Settings → Diagnostics** and run **Dry-run Import Pipeline**. It checks the whole AI pipeline end to end without calling any provider.
 
-Artifacts are written to `src-tauri/target/release/bundle`.
+<details>
+<summary><b>Optional: pre-fill keys for local development</b></summary>
 
-### macOS Test Distribution (Unsigned)
-Run a single command to build and package unsigned tester artifacts (includes build label stamping):
+```bash
+cp .env.example .env.local
+```
 
-1. `npm run package:mac:test`
+Set `VITE_API_KEY`, `VITE_AI_PROVIDER`, and `VITE_AI_BASE_URL`, plus `VITE_STT_API_KEY`, `VITE_STT_LANGUAGE`, and `VITE_STT_MODEL`. These are dev-only fallbacks; shipped apps always use the Settings screen.
+</details>
 
-Artifacts are written to `dist/testers`:
-- `IntelliNote5000-mac-unsigned.zip`
-- `IntelliNote5000-mac-unsigned.dmg` (plain DMG created with `hdiutil`, no Finder styling)
-- `IntelliNote5000-mac-unsigned.sha256` (hashes for zip + dmg)
-- `README-TESTERS.txt` (includes build label)
-- `BUILD.txt` (build label, version, commit, build time)
+### Run the desktop app
 
-These packages are unsigned and intended for limited testing only. Testers must use Gatekeeper’s “Open Anyway” flow to launch the app (right-click → Open, or System Settings → Privacy & Security → Open Anyway).
+```bash
+npm run start-desktop  # Tauri dev window
+```
 
-### iOS (Capacitor)
-1. Generate the native project: `npm run native:ios:gen`
-2. Open in Xcode: `npm run native:ios:open`
-3. Configure signing (team, bundle ID, provisioning) and archive:
-   - `npm run ios:archive` (prints Xcode + CLI guidance)
+On Linux, first install: `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev`
 
-### Android (Capacitor)
-1. Generate the native project: `npm run native:android:gen`
-2. Open in Android Studio: `npm run native:android:open`
-3. Configure signing in `android/` and build:
-   - `npm run android:bundle:release` (AAB)
-   - `npm run android:assemble:release` (APK)
+---
 
-## Production Checklist
-- ✅ Configure AI + STT providers in Settings and verify credentials.
-- ✅ Disable localStorage fallback unless you explicitly need it for web-only builds.
-- ✅ Verify transcription permissions on each platform.
-- ✅ Run `npm run verify:platforms` to confirm native config strings.
-- ✅ Run `npm run lint`, `npm run typecheck`, and `npm run test:unit`.
-- ✅ Run `npm run build` and `npm run tauri:build:unsigned` / `npm run native:ios:gen` / `npm run native:android:gen` as needed.
-- ✅ Review **Settings → Diagnostics & Storage** for recent errors before release.
+## 📦 Building & releasing
 
-## Troubleshooting
-- **AI requests fail**: Open the Diagnostics panel (Settings → Diagnostics) and confirm provider + error codes. Re-save your API key or regenerate it.
-- **STT connection error**: Confirm your Deepgram key, ensure your network allows WebSocket connections, and verify mic permissions are granted.
-- **Interim transcripts not updating**: Ensure the provider is configured for interim results and that the app stays in the foreground (backgrounding may auto-pause).
-- **Keys not persisting on web**: Enable the localStorage fallback toggle in Settings.
-- **Microphone blocked**: Check browser permissions or update native Info.plist/AndroidManifest entries.
-- **Capacitor build fails with missing permissions**: Run `npm run verify:platforms` and `npx cap sync` to regenerate native projects.
-- **Missing iOS/Android native projects**: Run `npm run native:ios:gen` or `npm run native:android:gen` before packaging.
-- **Tauri signing/notarization errors**: Confirm `TAURI_MACOS_SIGNING_IDENTITY`, `TAURI_MACOS_PROVIDER_SHORT_NAME`, `APPLE_ID`, and app-specific password are set and that hardened runtime entitlements include microphone access.
-- **Android build fails with foreground service errors**: Ensure `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_MICROPHONE` permissions are present after `npx cap sync`.
+**Easiest way to get installers:** push a tag, and GitHub Actions builds unsigned macOS, Windows, and Linux installers and attaches them to a draft release.
 
-## Platform Permission Notes
-- **macOS/iOS**: Add `NSMicrophoneUsageDescription` before shipping. Ensure entitlements permit microphone access.
-- **iOS background audio**: `UIBackgroundModes` includes `audio` when background recording is required; remove it if you do not support background capture.
-- **Android**: Declare `RECORD_AUDIO`, `FOREGROUND_SERVICE`, and `FOREGROUND_SERVICE_MICROPHONE` in `AndroidManifest.xml` after `npx cap sync`.
-- **Web**: HTTPS is required for microphone access in most browsers.
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
 
-## Release Steps
-1. `npm install`
-2. `npm run lint`
-3. `npm run typecheck`
-4. `npm run test:unit`
-5. `npm run build`
-6. `npm run verify:platforms`
-7. Desktop: `npm run tauri:build:unsigned` or `npm run tauri:build:signed`
-8. Mobile: `npm run native:ios:gen` / `npm run native:android:gen` → open Xcode/Android Studio for signing and release builds.
+<details>
+<summary><b>🍎 macOS (local)</b></summary>
 
-## Platform Build Steps
+```bash
+npm run tauri:build:unsigned   # ad-hoc signed test build
+npm run tauri:build:signed     # Developer ID + notarization
+npm run package:mac:test       # zip + dmg + checksums + tester README → dist/testers/
+```
 
-### Web
-1. `npm install`
-2. `npm run build`
-3. Deploy `dist/` to your static host.
+Signed builds need `TAURI_MACOS_SIGNING_IDENTITY` and `TAURI_MACOS_PROVIDER_SHORT_NAME`. Notarization also needs `APPLE_ID`, `APPLE_PASSWORD` (app-specific), `APPLE_TEAM_ID`, and `TAURI_NOTARIZE=1`. Output goes to `src-tauri/target/release/bundle/`.
 
-### macOS (Tauri)
-1. `npm install`
-2. `npm run build`
-3. `npm run verify:platforms`
-4. `npm run tauri:build:unsigned` or `npm run tauri:build:signed`
-5. Use the output in `src-tauri/target/release/bundle/macos`.
+Unsigned builds: right-click → **Open**, or **System Settings → Privacy & Security → Open Anyway**.
 
-### iOS (Capacitor)
-1. `npm install`
-2. `npm run build`
-3. `npm run verify:platforms`
-4. `npm run native:ios:gen`
-5. `npm run native:ios:open`
-6. Configure signing, update `Info.plist` if needed, and archive in Xcode.
+Full guide: [Apple release checklist](docs/apple-release-checklist.md)
+</details>
 
-### Android (Capacitor)
-1. `npm install`
-2. `npm run build`
-3. `npm run verify:platforms`
-4. `npm run native:android:gen`
-5. `npm run native:android:open`
-6. Configure signing and create a release build in Android Studio.
+<details>
+<summary><b>📱 iOS & Android (Capacitor)</b></summary>
 
-## Signing + Notarization (Placeholders)
-- **macOS (Tauri)**:
-  - [ ] Set `TAURI_MACOS_SIGNING_IDENTITY` and `TAURI_MACOS_PROVIDER_SHORT_NAME` and ensure hardened runtime + microphone entitlements are enabled.
-  - [ ] Set `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`, and optionally `TAURI_NOTARIZE=1` before `npm run tauri:build:signed`.
-  - [ ] Verify notarization status in the Apple developer portal.
-- **iOS**:
-  - [ ] Configure the Xcode project signing team, bundle ID, and provisioning profile.
-  - [ ] Ensure `NSMicrophoneUsageDescription` and `UIBackgroundModes` (audio) are present when background recording is supported.
-- **Android**:
-  - [ ] Generate a keystore in `android/` (after `npx cap sync`) and set Gradle signing config.
-  - [ ] Verify `RECORD_AUDIO` and foreground service permissions in `AndroidManifest.xml`.
+> [!NOTE]
+> `ios/` and `android/` currently hold only the permission files. Generate the full native projects first. See [Phase 2 of the roadmap](docs/distribution-roadmap.md#phase-2-phones--12-weeks-after-phase-1).
 
-## Provider Keys (Where to Set Them)
-- **Recommended (all platforms)**: Settings → AI Provider + Transcription Provider.
-- **Optional dev fallback**: `.env.local` (e.g., `VITE_API_KEY`, `VITE_AI_PROVIDER`, `VITE_AI_BASE_URL`).
-- **Native secure storage**: Tauri keychain + Capacitor secure storage plugin (never written to disk).
+```bash
+npm run native:ios:gen && npm run native:ios:open          # then archive in Xcode
+npm run native:android:gen && npm run native:android:open  # then build in Android Studio
+npm run android:bundle:release                              # AAB
+```
+</details>
 
-### Build commands
-- `npm run build` – production web bundle
-- `npm run start-desktop` – Tauri dev for macOS
-- `npm run tauri:build:unsigned` / `npm run tauri:build:signed` – Tauri release builds
-- `npm run native:ios:gen` / `npm run native:ios:open` – Capacitor iOS generation + open
-- `npm run native:android:gen` / `npm run native:android:open` – Capacitor Android generation + open
-- `npm run start-mobile` – sync + open iOS workspace (use Xcode for device/archive builds)
+<details>
+<summary><b>🌐 Web</b></summary>
 
-### Mobile + Desktop Permissions
-- **iOS/macOS**: Add a microphone usage description (`NSMicrophoneUsageDescription`) in the native project before archiving (`ios/App/App/Info.plist`, `src-tauri/tauri.conf.json`).
-- **Android**: Ensure `RECORD_AUDIO` permission is declared in `android/app/src/main/AndroidManifest.xml` after `npx cap sync`.
-- The app requests permissions at runtime via the browser media API. On mobile, interruptions (mute, unplug, backgrounding) automatically pause and resume recording when possible.
+```bash
+npm run build   # deploy dist/ to any static host (HTTPS required for the mic)
+```
+</details>
 
-## Common Build Errors
-- **Capacitor secure storage plugin missing**: run `npm install` and `npx cap sync` so the plugin is copied into `ios/` and `android/`.
-- **iOS archive fails with microphone permission**: confirm `NSMicrophoneUsageDescription` in `Info.plist` and run `npm run verify:platforms`.
-- **Android runtime permission denied**: ensure `RECORD_AUDIO` and foreground service permissions are in `AndroidManifest.xml`, then reinstall the app.
-- **Tauri keychain access denied**: verify the app is signed and the hardened runtime is enabled with the microphone entitlement.
+---
 
-## Release Guides
+## 🔬 Diagnostics
 
-- [Apple/macOS + iOS release checklist](docs/apple-release-checklist.md)
+Turn on **Settings → Diagnostics & Storage → Diagnostics panel** to get:
+
+- **Live event log** with level filtering and keys redacted.
+- **10-second STT probe**: time to first interim and final result, event cadence, reconnects, and dropped audio frames.
+- **Dry-run import pipeline**: runs every AI stage with no network calls.
+- **Export diagnostics bundle**: a redacted JSON file with build info, platform, logs, and probe results. Attach it to bug reports.
+- **Reset app state**: clears sessions and settings, and optionally your saved keys.
+
+Every build has a label, e.g. `IntelliNote5000 0.1.0 (37de5c7)`, shown in **Settings → About**. Include it in bug reports.
+
+---
+
+## 🛠️ Development
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Vite dev server on port 1420 |
+| `npm test` | Unit, transcript-pipeline, and storage (IndexedDB) tests |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run lint` | ESLint |
+| `npm run build` | Production web bundle |
+| `npm run verify:release` | Checks native permission strings, entitlements, and env wiring |
+| `npm run verify:platforms` | Pre-packaging platform config check |
+| `npm run verify:providers` | Validates AI provider metadata |
+
+**CI** runs lint, typecheck, tests, build, release verification, and a Rust `cargo check` on every PR and on every push to `main`. **Dependabot** opens one grouped PR per ecosystem each month; major version bumps are left for manual upgrades.
+
+<details>
+<summary><b>Project layout</b></summary>
+
+```
+App.tsx                 app state, session lifecycle, AI pipeline
+components/             UI: MainPanel, LiveNoteTaker, Settings, Diagnostics…
+services/providers/     AI adapters (Gemini, OpenAI) + error mapping
+services/stt/           Deepgram streaming + prerecorded transcription, probe
+utils/                  storage (IndexedDB, keychain), transcript parsing, logging
+src-tauri/              desktop shell: keychain commands, mic permissions, CSP
+verification_scripts/   tests + platform checks
+tools/                  build label, release and packaging scripts
+```
+
+**Adding an AI provider:** write an adapter in `services/providers/` that implements `AiProvider`, register it in `services/providers/index.ts`, and run `npm run verify:providers`.
+</details>
+
+---
+
+## 🩺 Troubleshooting
+
+<details>
+<summary><b>AI requests fail</b></summary>
+
+Open the Diagnostics panel and check the error code. `auth_failed` means re-save or regenerate your key. `rate_limited` means wait and use the **Retry** button on the toast.
+</details>
+
+<details>
+<summary><b>Live transcription won't connect</b></summary>
+
+Check your Deepgram key, make sure your network allows WebSockets to `api.deepgram.com`, and confirm mic permission. Run the **10-second STT probe** to see where it fails.
+</details>
+
+<details>
+<summary><b>Microphone blocked</b></summary>
+
+- **Browser:** check the site permissions; the mic needs HTTPS.
+- **macOS:** System Settings → Privacy & Security → Microphone.
+- **Linux desktop:** the app enables WebKitGTK media streams automatically. Make sure PipeWire or PulseAudio sees your mic.
+</details>
+
+<details>
+<summary><b>Keys don't persist in the browser</b></summary>
+
+By design. Turn on **Settings → Allow browser storage fallback** to keep keys in localStorage on web builds.
+</details>
+
+<details>
+<summary><b>Interim text stops updating</b></summary>
+
+Keep the app in the foreground. Recording auto-pauses when the window is hidden and resumes when you come back.
+</details>
+
+---
+
+## 🗺️ Roadmap
+
+Desktop ships first, then phones, then a tablet layout. Planned items include backup export and import, auto-updates, signed installers, and a first-run setup screen. See **[docs/distribution-roadmap.md](docs/distribution-roadmap.md)**.
+
+<div align="center">
+<sub>Built with React, Tauri, and Capacitor · powered by your own AI and transcription keys</sub>
+</div>
