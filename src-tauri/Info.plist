@@ -4,5 +4,7 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>IntelliNote needs microphone access to record and transcribe lecture audio.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>IntelliNote records system audio (for example an online lecture) to transcribe it on this computer.</string>
 </dict>
 </plist>
