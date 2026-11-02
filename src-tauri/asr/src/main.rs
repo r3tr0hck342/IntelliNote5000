@@ -9,7 +9,7 @@ mod verify;
 
 use decode::{decode_archive_bytes, decode_to_16k_mono, DecodeError};
 use protocol::{read_frame, write_json, KIND_ARCHIVE, KIND_JSON, KIND_PCM};
-use stream::{pcm_from_bytes, LiveEvent, LiveSession};
+use stream::{benchmark, pcm_from_bytes, LiveEvent, LiveSession};
 use serde::Deserialize;
 use serde_json::json;
 use std::cell::Cell;
@@ -54,6 +54,12 @@ enum Request {
         num_threads: Option<i32>,
     },
     EndFinal,
+    #[serde(rename_all = "camelCase")]
+    Benchmark {
+        model: TransducerModel,
+        #[serde(default)]
+        num_threads: Option<i32>,
+    },
     Shutdown,
 }
 
@@ -270,6 +276,10 @@ fn main() {
                     }),
                 ),
                 None => error(&mut out, "final", "no_active_final"),
+            },
+            Request::Benchmark { model, num_threads } => match benchmark(&model, num_threads.unwrap_or(2), 10) {
+                Ok(rtf) => send(&mut out, json!({ "type": "result", "id": "benchmark", "transcript": { "rtf": rtf, "audioSec": 10 } })),
+                Err(err) => error(&mut out, "benchmark", asr_error_code(&err)),
             },
             Request::Shutdown => break,
         }

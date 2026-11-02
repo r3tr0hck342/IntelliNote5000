@@ -184,6 +184,29 @@ impl LiveSession {
     }
 }
 
+/// First-run benchmark: decodes `seconds` of deterministic test audio straight through Nemotron
+/// (no VAD, so silence cannot make a slow machine look fast) and returns the real-time factor.
+pub fn benchmark(model: &TransducerModel, num_threads: i32, seconds: usize) -> Result<f64, AsrError> {
+    let recognizer = create_nemotron(model, num_threads)?;
+    let stream = recognizer.create_stream();
+    // Speech-band noise from a fixed LCG seed: same input on every machine.
+    let mut state: u32 = 0x1234_5678;
+    let samples: Vec<f32> = (0..SAMPLE_RATE * seconds)
+        .map(|_| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            ((state >> 8) as f32 / (1u32 << 24) as f32 - 0.5) * 0.2
+        })
+        .collect();
+    let started = std::time::Instant::now();
+    for chunk in samples.chunks(SAMPLE_RATE / 10) {
+        stream.accept_waveform(SAMPLE_RATE as i32, chunk);
+        while recognizer.is_ready(&stream) {
+            recognizer.decode(&stream);
+        }
+    }
+    Ok(started.elapsed().as_secs_f64() / seconds as f64)
+}
+
 /// Decodes kind-2 frames: little-endian f32 samples. Returns `None` on a misaligned payload.
 pub fn pcm_from_bytes(payload: &[u8]) -> Option<Vec<f32>> {
     if payload.len() % 4 != 0 {
