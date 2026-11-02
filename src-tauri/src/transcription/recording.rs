@@ -60,36 +60,64 @@ unsafe impl Send for ActiveRecording {}
 #[derive(Default)]
 pub struct RecordingState(pub Mutex<Option<ActiveRecording>>);
 
-/// Down-mixes interleaved frames to mono and resamples to 16 kHz by averaging each output
-/// sample's source window (a box filter: enough anti-aliasing for speech ASR).
-/// shortcut: box-filter resampler, upgrade to a polyphase/sinc resampler if ASR quality on
-/// 44.1/48 kHz input measurably trails 16 kHz input.
+/// Resamples mono audio to 16 kHz: a windowed-sinc low-pass FIR (Blackman, cutoff 7 kHz, below the
+/// 8 kHz output Nyquist) removes content that would alias, then output samples are interpolated
+/// linearly from the filtered signal. State carries across chunks, so chunk boundaries are seamless.
 pub struct Resampler {
     ratio: f64,
+    taps: Vec<f32>,
+    /// Unfiltered input history needed by the FIR (taps - 1 samples).
+    history: Vec<f32>,
+    /// Filtered samples not yet consumed by interpolation.
+    filtered: Vec<f32>,
     position: f64,
-    carry: Vec<f32>,
+}
+
+const FIR_TAPS: usize = 63;
+const CUTOFF_HZ: f64 = 7_000.0;
+
+fn lowpass_taps(input_rate: f64) -> Vec<f32> {
+    let fc = CUTOFF_HZ / input_rate; // normalized cutoff (cycles/sample)
+    let mid = (FIR_TAPS - 1) as f64 / 2.0;
+    let mut taps: Vec<f64> = (0..FIR_TAPS)
+        .map(|n| {
+            let x = n as f64 - mid;
+            let sinc = if x == 0.0 { 2.0 * fc } else { (2.0 * std::f64::consts::PI * fc * x).sin() / (std::f64::consts::PI * x) };
+            let w = 2.0 * std::f64::consts::PI * n as f64 / (FIR_TAPS - 1) as f64;
+            sinc * (0.42 - 0.5 * w.cos() + 0.08 * (2.0 * w).cos())
+        })
+        .collect();
+    let sum: f64 = taps.iter().sum();
+    taps.iter_mut().for_each(|t| *t /= sum); // unity gain at DC
+    taps.into_iter().map(|t| t as f32).collect()
 }
 
 impl Resampler {
     pub fn new(input_rate: u32) -> Self {
-        Self { ratio: input_rate as f64 / SAMPLE_RATE as f64, position: 0.0, carry: Vec::new() }
+        let ratio = input_rate as f64 / SAMPLE_RATE as f64;
+        Self { ratio, taps: lowpass_taps(input_rate as f64), history: vec![0.0; FIR_TAPS - 1], filtered: Vec::new(), position: 0.0 }
     }
 
     pub fn process(&mut self, mono: &[f32]) -> Vec<f32> {
         if (self.ratio - 1.0).abs() < f64::EPSILON {
             return mono.to_vec();
         }
-        self.carry.extend_from_slice(mono);
-        let mut out = Vec::with_capacity((self.carry.len() as f64 / self.ratio) as usize + 1);
-        while self.position + self.ratio <= self.carry.len() as f64 {
-            let start = self.position as usize;
-            let end = ((self.position + self.ratio) as usize).max(start + 1).min(self.carry.len());
-            let window = &self.carry[start..end];
-            out.push(window.iter().sum::<f32>() / window.len() as f32);
+        self.history.extend_from_slice(mono);
+        for window in self.history.windows(FIR_TAPS) {
+            self.filtered.push(window.iter().zip(&self.taps).map(|(x, t)| x * t).sum());
+        }
+        let keep = self.history.len() - (FIR_TAPS - 1);
+        self.history.drain(..keep);
+
+        let mut out = Vec::with_capacity((self.filtered.len() as f64 / self.ratio) as usize + 1);
+        while self.position + 1.0 < self.filtered.len() as f64 {
+            let index = self.position as usize;
+            let frac = (self.position - index as f64) as f32;
+            out.push(self.filtered[index] * (1.0 - frac) + self.filtered[index + 1] * frac);
             self.position += self.ratio;
         }
-        let consumed = self.position as usize;
-        self.carry.drain(..consumed);
+        let consumed = (self.position as usize).min(self.filtered.len());
+        self.filtered.drain(..consumed);
         self.position -= consumed as f64;
         out
     }
@@ -365,22 +393,36 @@ impl ActiveRecording {
 mod tests {
     use super::*;
 
-    #[test]
-    fn resamples_48k_to_16k_at_the_right_rate() {
-        let mut resampler = Resampler::new(48_000);
-        let mut produced = 0;
-        for _ in 0..10 {
-            produced += resampler.process(&vec![0.25; 4_800]).len(); // 10 × 100 ms
-        }
-        assert!((15_998..=16_000).contains(&produced), "1 s in, ~1 s out: {produced}");
-        assert!(resampler.process(&[0.25; 3]).iter().all(|s| (s - 0.25).abs() < 1e-6));
+    fn tone(freq: f64, rate: u32, seconds: f64) -> Vec<f32> {
+        (0..(rate as f64 * seconds) as usize).map(|i| (2.0 * std::f64::consts::PI * freq * i as f64 / rate as f64).sin() as f32).collect()
+    }
+
+    /// Steady-state peak amplitude after resampling (skips the filter's start-up transient).
+    fn output_peak(freq: f64, rate: u32) -> f32 {
+        let mut resampler = Resampler::new(rate);
+        let input = tone(freq, rate, 1.0);
+        let out: Vec<f32> = input.chunks(rate as usize / 10).flat_map(|chunk| resampler.process(chunk)).collect();
+        out[1_600..].iter().fold(0.0f32, |peak, s| peak.max(s.abs()))
     }
 
     #[test]
-    fn handles_non_integer_ratios() {
-        let mut resampler = Resampler::new(44_100);
-        let produced: usize = (0..10).map(|_| resampler.process(&vec![0.0; 4_410]).len()).sum();
-        assert!((15_998..=16_000).contains(&produced), "{produced}");
+    fn produces_16k_samples_per_second_for_common_rates() {
+        for rate in [48_000u32, 44_100, 32_000] {
+            let mut resampler = Resampler::new(rate);
+            let produced: usize = (0..10).map(|_| resampler.process(&vec![0.0; rate as usize / 10]).len()).sum();
+            assert!((15_990..=16_000).contains(&produced), "{rate} Hz -> {produced}");
+        }
+    }
+
+    #[test]
+    fn passes_speech_band_and_blocks_aliasing_tones() {
+        for rate in [48_000u32, 44_100] {
+            let speech = output_peak(1_000.0, rate);
+            assert!((0.9..=1.05).contains(&speech), "{rate} Hz: 1 kHz tone should pass, peak {speech}");
+            // 12 kHz is above the 8 kHz output Nyquist: without filtering it would alias to 4 kHz.
+            let alias = output_peak(12_000.0, rate);
+            assert!(alias < 0.02, "{rate} Hz: 12 kHz tone should be removed, peak {alias}");
+        }
     }
 
     #[test]
