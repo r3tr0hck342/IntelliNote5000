@@ -1,11 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { ChatMessage } from '../../types';
-import { formatContext, getPromptForMode, getFlashcardPrompt, getTagPrompt, getChatSystemPrompt, getEditPrompt } from '../aiPrompts';
+import { formatStudyContext, getPromptForMode, getFlashcardPrompt, getTagPrompt, getChatSystemPrompt, getEditPrompt } from '../aiPrompts';
 import { AiProvider, ProviderMetadata, ProviderRuntimeOptions, AiChatChunk } from './types';
 import { ApiConfig } from '../../types/ai';
 import { mapProviderError, ProviderError } from './errors';
 import { httpFetch } from '../../utils/http';
-import { dryRunMessage, parseFlashcards, parseTags, resolveModel } from './shared';
+import { dryRunMessage, parseStudyFlashcards, parseTags, resolveModel } from './shared';
 
 export const anthropicMetadata: ProviderMetadata = {
     id: 'anthropic',
@@ -74,13 +74,13 @@ export const createAnthropicProvider = (config: ApiConfig): AiProvider => {
         metadata: anthropicMetadata,
         rawConfig: config,
         processTranscript: async (transcript, mode, handouts, options) => {
-            const prompt = getPromptForMode(mode, formatContext(transcript, handouts));
+            const prompt = getPromptForMode(mode, await formatStudyContext(transcript, handouts));
             if (options?.dryRun) return dryRunMessage('Claude', `process ${mode}`, prompt.length);
             return complete('You are an expert academic assistant.', prompt, options);
         },
         generateFlashcards: async (transcript, handouts, options) => {
             const count = options?.count ?? 10;
-            const prompt = `${getFlashcardPrompt(formatContext(transcript, handouts), count)}
+            const prompt = `${getFlashcardPrompt(await formatStudyContext(transcript, handouts), count)}
 
 Return only a JSON array of objects with keys "front" and "back".`;
             if (options?.dryRun) {
@@ -89,17 +89,17 @@ Return only a JSON array of objects with keys "front" and "back".`;
                     back: dryRunMessage('Claude', 'flashcards', prompt.length),
                 }));
             }
-            return parseFlashcards(await complete('You create excellent study flashcards.', prompt, options));
+            return await parseStudyFlashcards(await complete('You create excellent study flashcards.', prompt, options));
         },
         generateTags: async (transcript, handouts, options) => {
-            const prompt = `${getTagPrompt(formatContext(transcript, handouts))}
+            const prompt = `${getTagPrompt(await formatStudyContext(transcript, handouts))}
 
 Return only a valid JSON array.`;
             if (options?.dryRun) return ['dry-run', `anthropic:${prompt.length}`];
             return parseTags(await complete('You extract concise topical tags.', prompt));
         },
         generateChatStream: async function* (history, message, transcript, handouts, options): AsyncGenerator<AiChatChunk> {
-            const system = getChatSystemPrompt(formatContext(transcript, handouts));
+            const system = getChatSystemPrompt(await formatStudyContext(transcript, handouts));
             if (options?.dryRun) {
                 const length = [system, message, ...history.map(item => item.content)].join('\n').length;
                 yield { textDelta: dryRunMessage('Claude', 'chat', length) };

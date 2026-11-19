@@ -1,3 +1,4 @@
+import { desktopWorkflow } from './desktopWorkflow.ts';
 import type { LegacyLecture, LectureAsset, StudySession, TranscriptSegment, PersistedSessions } from '../types';
 import { createId, buildTranscriptText } from './transcript.ts';
 import { appendAudioChunk, clearLocalDb, hasRecording, kvGet, kvSet } from './localDb.ts';
@@ -180,7 +181,16 @@ const moveInlineAudioToStore = (sessions: StudySession[]): Promise<StudySession[
 export const loadPersistedSessions = async (): Promise<PersistedSessions> => {
   const stored = await kvGet<PersistedSessions>(IDB_SESSIONS_KEY);
   if (stored && typeof stored.schemaVersion === 'number' && isArray(stored.sessions)) {
-    return migratePersistedSessions(stored);
+    const valid = await desktopWorkflow<number[] | null>(
+      'valid_study_session_indices', { sessions: stored.sessions }, () => null,
+    );
+    if (!valid) return migratePersistedSessions(stored);
+    const retained = new Set(valid);
+    return {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      // IndexedDB can represent numbers and sparse arrays that JSON IPC changes.
+      sessions: stored.sessions.filter((session, index) => retained.has(index) || isStudySession(session)),
+    };
   }
 
   const legacy = loadLocalStorageSessions();

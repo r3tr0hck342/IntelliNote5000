@@ -532,14 +532,12 @@ const App: React.FC = () => {
     if(isMobile) setIsSidebarOpen(false);
   };
 
-  const handleCreateLectureFromFile = useCallback((data: { title: string; transcript: string; handouts: Handout[]; sessionId?: string; transcriptData?: Transcript; onProgress?: (progress: ImportPipelineProgress) => void }) => {
-    const now = new Date();
+  const handleCreateLectureFromFile = useCallback((data: { title: string; assetId: string; createdAt: string; segments: TranscriptSegment[]; handouts: Handout[]; sessionId?: string; transcriptData?: Transcript; onProgress?: (progress: ImportPipelineProgress) => void }) => {
     const sessionId = data.sessionId || handleCreateSession(data.title, '');
-    const assetId = createId('asset');
-    const createdAt = now.toISOString();
+    const { assetId, createdAt } = data;
     const segments = data.transcriptData
       ? toTranscriptSegments(data.transcriptData, assetId, createdAt)
-      : normalizeImportedTranscript(data.transcript, assetId, createdAt);
+      : data.segments;
     const asset: LectureAsset = {
       id: assetId,
       sessionId,

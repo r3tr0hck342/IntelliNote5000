@@ -1,3 +1,4 @@
+import { desktopWorkflow } from '../utils/desktopWorkflow';
 import { GenerationMode, Handout, TranscriptSegment, AiEditMode } from '../types';
 
 export const getTranscriptText = (transcript: TranscriptSegment[]): string => {
@@ -18,6 +19,12 @@ export const formatContext = (transcript: TranscriptSegment[], handouts: Handout
     }
     return context;
 };
+
+export const formatStudyContext = (transcript: TranscriptSegment[], handouts: Handout[]) =>
+    desktopWorkflow('format_study_context', {
+        transcript: transcript.map(({ text, isFinal }) => ({ text, isFinal })),
+        handouts: (handouts ?? []).map(({ name, content }) => ({ name, content })),
+    }, () => formatContext(transcript, handouts));
 
 export const getPromptForMode = (mode: GenerationMode, context: string): string => {
     switch (mode) {
