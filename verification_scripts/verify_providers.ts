@@ -15,7 +15,7 @@ const REQUIRED_FIELDS: Array<keyof ProviderMetadata> = [
     'suggestedModels',
 ];
 
-const REQUIRED_PROVIDER_IDS: ProviderId[] = ['gemini', 'anthropic', 'openai', 'openrouter', 'ollama'];
+const REQUIRED_PROVIDER_IDS: ProviderId[] = ['gemini', 'anthropic', 'openai', 'openrouter', 'ollama', 'llama-cpp'];
 
 const assert = (condition: boolean, message: string) => {
     if (!condition) {

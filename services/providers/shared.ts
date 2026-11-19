@@ -5,7 +5,7 @@ import type { ProviderMetadata, ProviderRuntimeOptions } from './types';
 
 export const resolveModel = (config: ApiConfig, metadata: ProviderMetadata, options?: ProviderRuntimeOptions): string =>
     options?.useIntelligenceMode
-        ? config.advancedModel?.trim() || metadata.defaultAdvancedModel
+        ? config.advancedModel?.trim() || (config.provider === 'llama-cpp' ? config.model?.trim() : undefined) || metadata.defaultAdvancedModel
         : config.model?.trim() || metadata.defaultModel;
 
 export const dryRunMessage = (provider: string, action: string, payloadLength: number) =>

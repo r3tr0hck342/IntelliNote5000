@@ -4,6 +4,7 @@ export type ProviderId =
     | 'openai'
     | 'openrouter'
     | 'ollama'
+    | 'llama-cpp'
     | 'mistral'
     | 'deepseek'
     | 'xai';
