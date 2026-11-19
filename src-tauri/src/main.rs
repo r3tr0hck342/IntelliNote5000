@@ -54,6 +54,7 @@ fn main() {
             transcription::commands::recording_stop,
             transcription::commands::recording_status,
             transcription::commands::recording_attach,
+            transcription::commands::recording_archive_ready,
             transcription::commands::recording_finalize,
             transcription::commands::transcription_tier
         ])

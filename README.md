@@ -23,7 +23,7 @@ Record a lecture, watch the transcript appear word by word, then get organized n
 
 | | |
 |---|---|
-| 🎙️ **Live transcription** | **Free** with open-source Whisper (Groq's free tier or your own local server), or word-by-word with Deepgram. |
+| 🎙️ **Live transcription** | English speech recognition runs on-device by default on desktop. Web and mobile use a configured transcription provider. |
 | 🤖 **Any AI you like** | **Free:** Gemini, OpenRouter `:free` models, Ollama (local). **Paid:** Claude, OpenAI, Mistral, DeepSeek, Grok. Pick any model, plus a stronger one for *Intelligence Mode*. |
 | 📝 **Organized notes** | Turns the transcript plus any handouts into clean, editable rich-text notes. |
 | 📚 **Study guide & test questions** | Summary, key concepts, outline, multiple-choice, short-answer, and essay questions. |
@@ -31,18 +31,19 @@ Record a lecture, watch the transcript appear word by word, then get organized n
 | 💬 **Chat with your lecture** | Ask questions answered only from your transcript and handouts. Gemini can also search the web. |
 | ✏️ **AI transcript editing** | Improve readability, format as notes, pull out key topics, summarize a selection, or give your own instruction. |
 | 📎 **Handouts** | Drop in PDF, DOCX, TXT, or MD files. They feed every AI feature. |
-| 📥 **Transcript import** | Paste or upload `.txt`/`.md`. SRT/VTT cues and `[00:12:03]` timestamps are detected automatically. |
+| 📥 **Transcript import** | Paste a transcript or upload TXT, Markdown, SRT, or VTT. Inline timestamps such as `[00:12:03]` are detected automatically. |
 | 🏷️ **Tags & search** | AI-suggested tags, plus sidebar search by title, date, or tag. |
 | 🌗 **Dark & light themes** | Dark by default, with no flash on load. |
 
-## 🛡️ Built not to lose your work
+## Record a lecture offline
 
-- **Audio is saved every second** to local storage while you record. A crash or a closed window keeps everything up to that point.
-- **No 5 MB browser cap.** Sessions and recordings live in IndexedDB, and existing data migrates automatically.
-- **Dropped connection? Recording keeps going.** Streaming reconnects with exponential backoff. If it can't reconnect, **Transcribe After Recording** processes the saved audio instead.
-- **Download audio** for any live recording, through the native save dialog on desktop.
-- **Loud failures.** If a load or save fails, you get an error toast, and saving pauses rather than overwrite good data.
-- **Interruptions handled.** Unplugging the mic, a mute, or switching apps pauses recording and resumes it when possible.
+1. In the desktop app, open **Record a lecture** and download the speech models while online. A fresh setup downloads about 952 MB.
+2. Choose **Microphone** for an in-person lecture or **System audio** for an online lecture where supported. Start recording and watch the input meter.
+3. Stop the recording. The desktop app runs a second speech model over the saved audio, then offers **Open saved transcript**.
+
+Desktop capture, live text, and the final pass work offline after setup. On slower computers, or if live recognition falls behind, the app keeps recording and transcribes after stopping. Study materials use a separate AI provider. Configure a local provider such as Ollama to generate those offline too.
+
+Desktop recordings are saved in encrypted segments. If the final pass fails, choose **Retry final transcript** in the recorder or reopen the session's **Transcript** tab to retry saved audio. Web and mobile recording audio uses browser storage and can be downloaded from the transcript view.
 
 ## 🔐 Your keys, your data
 
@@ -55,13 +56,15 @@ Record a lecture, watch the transcript appear word by word, then get organized n
 
 ```mermaid
 flowchart LR
-    Mic([🎙️ Microphone]) -->|16 kHz PCM| DG[Deepgram<br/>streaming STT]
-    Mic -->|every 1 s| IDB[(IndexedDB<br/>sessions + audio)]
-    DG -->|interim + final segments| App[IntelliNote UI<br/>React]
-    Files([📎 Handouts &<br/>transcripts]) --> App
-    App <-->|notes, guides, cards, chat| AI[Gemini or<br/>OpenAI-compatible]
-    App <--> IDB
-    App <-->|API keys| KC[(OS keychain)]
+    Input[Microphone or system audio] --> Capture[Desktop audio capture]
+    Capture --> Archive[(Encrypted audio archive)]
+    Capture --> Live[Nemotron live text]
+    Archive --> Final[Parakeet final pass]
+    Live --> App[IntelliNote]
+    Final --> App
+    Files[Handouts and imported transcripts] --> App
+    App <--> IDB[(Session library)]
+    App <--> AI[Optional AI provider]
 ```
 
 **Transcription**

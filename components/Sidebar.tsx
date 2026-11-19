@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { StudySession } from '../types';
-import { PlusIcon, UploadIcon, SearchIcon, TagIcon, XIcon, SunIcon, MoonIcon, SettingsIcon } from './icons';
+import { PlusIcon, UploadIcon, SearchIcon, TagIcon, XIcon, SettingsIcon } from './icons';
 
 interface SidebarProps {
   sessions: StudySession[];
   activeSessionId: string | null;
   onSelectLecture: (id: string) => void;
   onNewLiveLecture: () => void;
+  nativeBusy: boolean;
   onUpload: () => void;
   onDeleteLecture: (id: string) => void;
   isMobile: boolean;
@@ -14,7 +15,7 @@ interface SidebarProps {
   onOpenSettings: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ sessions, activeSessionId, onSelectLecture, onNewLiveLecture, onUpload, onDeleteLecture, isMobile, onCloseRequest, onOpenSettings }) => {
+const Sidebar: React.FC<SidebarProps> = ({ sessions, activeSessionId, onSelectLecture, onNewLiveLecture, nativeBusy, onUpload, onDeleteLecture, isMobile, onCloseRequest, onOpenSettings }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTag, setActiveTag] = useState<string | null>(null);
 
@@ -45,11 +46,11 @@ const Sidebar: React.FC<SidebarProps> = ({ sessions, activeSessionId, onSelectLe
   }, [sessions, searchQuery, activeTag]);
 
   return (
-    <div className="w-80 bg-gray-100 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col h-screen p-4">
+    <div className="w-72 max-w-[90vw] bg-gray-100 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col h-full p-4">
       <div className="flex items-center justify-between mb-6">
          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">IntelliNote</h1>
          {isMobile && (
-            <button onClick={onCloseRequest} className="p-1 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full">
+            <button aria-label="Close sessions" onClick={onCloseRequest} className="p-1 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full">
                 <XIcon className="w-6 h-6" />
             </button>
          )}
@@ -58,7 +59,7 @@ const Sidebar: React.FC<SidebarProps> = ({ sessions, activeSessionId, onSelectLe
       <div className="flex flex-col space-y-2 mb-6">
         <button onClick={onNewLiveLecture} className="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-100 dark:focus:ring-offset-gray-900 focus:ring-indigo-500 transition-all duration-200">
             <PlusIcon className="w-5 h-5 mr-2" />
-            New Live Lecture
+            {nativeBusy ? 'Return to recorder' : 'Record a lecture'}
         </button>
         <button onClick={onUpload} className="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-100 dark:focus:ring-offset-gray-900 focus:ring-indigo-500 transition-all duration-200">
             <UploadIcon className="w-5 h-5 mr-2" />
@@ -72,6 +73,7 @@ const Sidebar: React.FC<SidebarProps> = ({ sessions, activeSessionId, onSelectLe
         </span>
         <input
             type="text"
+            aria-label="Search sessions"
             placeholder="Search by title, date, tag..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -105,35 +107,28 @@ const Sidebar: React.FC<SidebarProps> = ({ sessions, activeSessionId, onSelectLe
             </p>
           ) : (
             filteredSessions.map((lecture) => (
-              <a
+              <div
                 key={lecture.id}
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  onSelectLecture(lecture.id);
-                }}
                 className={`group relative flex items-center justify-between px-3 py-2 text-sm font-medium rounded-md transition-colors duration-150 ${
                   activeSessionId === lecture.id
                     ? 'bg-indigo-100 dark:bg-indigo-500 dark:bg-opacity-20 text-indigo-600 dark:text-indigo-300'
                     : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
-                <div className="flex flex-col overflow-hidden">
-                    <span className="font-semibold truncate">{lecture.title}</span>
+                <button type="button" onClick={() => onSelectLecture(lecture.id)} aria-current={activeSessionId === lecture.id ? 'true' : undefined}
+                  className="flex min-w-0 flex-1 flex-col text-left">
+                    <span className="max-w-full font-semibold truncate">{lecture.title}</span>
                     <span className="text-xs text-gray-500">{new Date(lecture.createdAt).toLocaleString()}</span>
-                </div>
+                </button>
                 <button
-                    onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        onDeleteLecture(lecture.id);
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full text-gray-500 hover:bg-red-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    onClick={() => onDeleteLecture(lecture.id)}
+                    aria-label={`Delete ${lecture.title}`}
+                    className="ml-2 shrink-0 p-1 rounded-full text-gray-500 hover:bg-red-500 hover:text-white sm:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                     title="Delete Session"
                 >
                     <XIcon className="w-4 h-4" />
                 </button>
-              </a>
+              </div>
             ))
           )}
         </nav>

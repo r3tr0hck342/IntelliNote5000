@@ -174,18 +174,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[calc(100dvh-2rem)] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center">
             <BrainIcon className="w-6 h-6 mr-3 text-indigo-500" />
             Settings
           </h2>
-          <button onClick={onClose} className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
+          <button onClick={onClose} aria-label="Close settings" className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
             <XIcon className="w-6 h-6" />
           </button>
         </div>
 
-        <div className="p-6 space-y-8 overflow-y-auto max-h-[75vh]">
+        <div className="min-h-0 overflow-y-auto p-4 sm:p-6 space-y-8">
           <section>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Appearance</h3>
             <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg flex items-center justify-between">
@@ -295,21 +295,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           </section>
 
           <section>
-            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Transcription Provider</h3>
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Cloud transcription</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-              <strong>Desktop app: you don&apos;t need this.</strong> The Live tab transcribes on this computer: free, unlimited, no account, and audio never leaves the device (speech models download once, about 1.2 GB).
-              Cloud free tiers all have limits (Groq: hourly/daily caps; Deepgram: one-time credit). If you hit them, switch to on-device, or use a paid option (OpenAI preset or Deepgram, pay per minute). Cloud providers receive your audio.
+              On desktop, use <strong>Record a lecture</strong> to install the speech models once and transcribe offline. These settings apply when you switch to a cloud provider or record in the web or mobile app.
             </p>
             {deviceTier !== undefined && (
               <p className="text-sm mb-3 text-gray-700 dark:text-gray-300" role="status">
                 <span className="font-medium">This computer: </span>
-                {deviceTier === null ? 'speed not measured yet (open the Live tab once).'
+                {deviceTier === null ? 'speed not measured yet. Install the speech models in the recorder.'
                   : deviceTier === 'below-floor' ? 'too slow for live text; it records first and transcribes after you stop (still free and unlimited).'
                   : `can transcribe live on its own (${deviceTier === 'high' ? 'fast' : 'standard'}).`}
               </p>
             )}
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Powers live lecture transcription. Separate from your AI provider. Whisper is free: use Groq&apos;s free tier, or run an open-source Whisper server on your own computer.
+              Transcription providers receive your audio. The AI provider above handles study materials separately.
             </p>
             <div className="space-y-4">
               <div>

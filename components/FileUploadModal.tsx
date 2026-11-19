@@ -24,6 +24,7 @@ interface ImportPipelineProgress {
 
 interface FileUploadModalProps {
   onClose: () => void;
+  isAiReady: boolean;
   onCreateLecture: (data: {
     title: string;
     assetId: string;
@@ -38,7 +39,7 @@ interface FileUploadModalProps {
   sessions: StudySession[];
 }
 
-const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLecture, sessions }) => {
+const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLecture, sessions, isAiReady }) => {
   const [title, setTitle] = useState('');
   const [transcript, setTranscript] = useState('');
   const [handouts, setHandouts] = useState<Handout[]>([]);
@@ -158,7 +159,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
 
   const handleCreate = async () => {
     if (!transcript.trim()) {
-      alert('A transcript is required to use the AI features.');
+      alert('Add a transcript before importing.');
       return;
     }
     setIsImporting(true);
@@ -421,7 +422,9 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
             </div>
           )}
 
-          {(isImporting || importComplete || importError) && (
+          {!isAiReady && importComplete && <p role="status" className="text-sm">Transcript saved. Study materials are available after you connect an AI provider.</p>}
+          {!isAiReady && importError && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{importError}</p>}
+          {isAiReady && (isImporting || importComplete || importError) && (
             <div className="border border-gray-200 dark:border-gray-700 rounded-md p-4 space-y-3">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">AI Import Pipeline</h3>
               <ul className="space-y-2 text-sm">
@@ -445,7 +448,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
           )}
         </div>
 
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex flex-wrap justify-end gap-2">
           <button
             onClick={onClose}
             disabled={isImporting}
@@ -463,7 +466,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
           )}
           <button
             onClick={handleCreate}
-            disabled={isParsing || !transcript.trim() || isImporting}
+            disabled={isParsing || !transcript.trim() || isImporting || importComplete}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed"
           >
             {isImporting ? 'Importing...' : 'Import Transcript'}
