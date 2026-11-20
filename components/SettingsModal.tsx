@@ -5,6 +5,10 @@ import { openExternal } from '../utils/openExternal';
 import { XIcon, BrainIcon, SunIcon, MoonIcon } from './icons';
 import { ApiConfig } from '../utils/apiConfig';
 import { ProviderId } from '../types/ai';
+import { AiEditMode } from '../types';
+import { createProvider } from '../services/providers';
+import { ProviderError } from '../services/providers/errors';
+import { downloadOllamaModel, findLocalModels } from '../services/providers/localSetup';
 import { ProviderMetadata } from '../services/providers/types';
 import { SttConfig, SttProviderId } from '../types/stt';
 import { SttProviderMetadata, WHISPER_ENDPOINT_PRESETS } from '../services/stt';
@@ -82,6 +86,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [sttBaseUrl, setSttBaseUrl] = useState(sttConfig?.baseUrl ?? '');
   const [sttLanguage, setSttLanguage] = useState(sttConfig?.language ?? '');
   const [sttModel, setSttModel] = useState(sttConfig?.model ?? '');
+  const [aiAction, setAiAction] = useState<'find' | 'download' | 'test' | null>(null);
+  const [aiMessage, setAiMessage] = useState<string | null>(null);
+  const [discoveredModels, setDiscoveredModels] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingStt, setIsSavingStt] = useState(false);
   const [autoGenConfig, setAutoGenConfig] = useState(autoGenerationConfig);
@@ -92,6 +99,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const selectProvider = (id: ProviderId) => {
     const saved = apiConfig?.provider === id ? apiConfig : null;
     setSelectedProvider(id);
+    setAiMessage(null);
+    setDiscoveredModels([]);
     setApiKey(saved?.apiKey ?? '');
     setBaseUrl(saved?.baseUrl ?? '');
     setModel(saved?.model ?? '');
@@ -131,6 +140,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const selectedMetadata = availableProviders.find(p => p.id === selectedProvider) || availableProviders[0];
   const requiresBaseUrl = Boolean(selectedMetadata?.allowsCustomBaseUrl);
+  const localProvider = selectedProvider === 'ollama' || selectedProvider === 'llama-cpp';
+  const localUrl = baseUrl.trim() || selectedMetadata?.defaultBaseUrl || '';
   const keyRequired = selectedMetadata?.requiresApiKey ?? true;
   const canSaveApi = !keyRequired || apiKey.trim().length > 0;
   const selectedSttMetadata = availableSttProviders.find(p => p.id === selectedSttProvider) || availableSttProviders[0];
@@ -140,17 +151,61 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const labelClass = 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1';
   const freeBadge = <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">Free</span>;
 
+  const draftConfig = (): ApiConfig => ({
+    provider: selectedProvider,
+    apiKey: apiKey.trim(),
+    baseUrl: baseUrl.trim() || undefined,
+    model: model.trim() || undefined,
+    advancedModel: advancedModel.trim() || undefined,
+  });
+
+  const handleAiAction = async (action: 'find' | 'download' | 'test') => {
+    if (!canSaveApi || aiAction) return;
+    setAiAction(action);
+    setAiMessage(null);
+    try {
+      if (action === 'test') {
+        const result = await createProvider(draftConfig()).editTranscript('IntelliNote connection check.', AiEditMode.Improve);
+        setAiMessage(result.trim() ? 'Model responded. Save AI settings to use it for study materials.' : 'The server replied without text. Try a different model.');
+      } else {
+        if (action === 'download') {
+          await downloadOllamaModel(localUrl, apiKey.trim(), 'llama3.2');
+          setModel('llama3.2');
+          setAdvancedModel('llama3.2');
+          setAiMessage('Starter model installed. Test the connection, then save.');
+          return;
+        }
+        const models = await findLocalModels(localUrl, apiKey.trim());
+        setDiscoveredModels(models);
+        if (!models.length) {
+          setAiMessage('The server is running. Install or load a model first.');
+          return;
+        }
+        const chosen = models.includes(model.trim()) ? model.trim() : models[0];
+        setModel(chosen);
+        if (!models.includes(advancedModel.trim())) setAdvancedModel(chosen);
+        setAiMessage(`Found ${models.length} ${models.length === 1 ? 'model' : 'models'}. Test the connection, then save.`);
+      }
+    } catch (error) {
+      if (action === 'find') {
+        setAiMessage('Could not list models. Check that the local server is running and the URL ends in /v1.');
+      } else if (action === 'download') {
+        setAiMessage('Could not download the model. Open Ollama and check your connection and free disk space.');
+      } else {
+        setAiMessage(error instanceof ProviderError && error.code !== 'unknown'
+          ? `${error.message} Check the model and API plan if the problem continues.`
+          : 'The model did not respond. Check the server address, model name, and credentials.');
+      }
+    } finally {
+      setAiAction(null);
+    }
+  };
+
   const handleSave = async () => {
     if (!canSaveApi) return;
     setIsSaving(true);
     try {
-      await onSaveApiConfig({
-        provider: selectedProvider,
-        apiKey: apiKey.trim(),
-        baseUrl: baseUrl.trim() || undefined,
-        model: model.trim() || undefined,
-        advancedModel: advancedModel.trim() || undefined,
-      });
+      await onSaveApiConfig(draftConfig());
     } finally {
       setIsSaving(false);
     }
@@ -174,18 +229,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[calc(100dvh-2rem)] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center">
             <BrainIcon className="w-6 h-6 mr-3 text-indigo-500" />
             Settings
           </h2>
-          <button onClick={onClose} className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
+          <button onClick={onClose} aria-label="Close settings" className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
             <XIcon className="w-6 h-6" />
           </button>
         </div>
 
-        <div className="p-6 space-y-8 overflow-y-auto max-h-[75vh]">
+        <div className="min-h-0 overflow-y-auto p-4 sm:p-6 space-y-8">
           <section>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Appearance</h3>
             <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg flex items-center justify-between">
@@ -199,29 +254,30 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <section>
             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">AI Provider</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-              Writes your notes, flashcards and answers. Free options: Gemini, OpenRouter, Mistral, or Ollama (runs on this computer). Your transcript is sent to the provider you pick, except Ollama.
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              Optional. Generate notes, study guides, practice questions, flashcards, and chat answers. Desktop transcription works without an AI account.
             </p>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              IntelliNote runs on your own credentials. Pick a provider, paste its key, and optionally choose models. Options marked Free cost nothing. Keys are stored in secure storage on native builds; browser storage is optional and must be enabled below.
+              Choose local AI to keep lecture text on this computer. Hosted APIs receive your transcript and handouts and apply their own usage limits and billing.
             </p>
-            <div className="space-y-4">
+            <fieldset disabled={!!aiAction} className="min-w-0 space-y-4">
               <div>
-                <label className={labelClass}>Provider</label>
+                <label htmlFor="ai-provider" className={labelClass}>Provider</label>
                 <select
+                  id="ai-provider"
                   value={selectedProvider}
                   onChange={(e) => selectProvider(e.target.value as ProviderId)}
                   className={inputClass}
                 >
                   {availableProviders.map(provider => (
                     <option key={provider.id} value={provider.id}>
-                      {provider.label}{provider.isFree ? ' (Free)' : ''}
+                      {provider.label}{AI_SETUP_GUIDES[provider.id]?.cost === 'Free tier' ? ' (Free tier)' : ''}
                     </option>
                   ))}
                 </select>
                 {selectedMetadata && (
                   <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                    <p>{selectedMetadata.description}{selectedMetadata.isFree && freeBadge}</p>
+                    <p>{selectedMetadata.description}</p>
                     <button type="button" onClick={() => void openExternal(selectedMetadata.docsUrl)} className="text-indigo-500 hover:underline">
                       Models & documentation ↗
                     </button>
@@ -230,50 +286,54 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 )}
               </div>
               <div>
-                <label className={labelClass}>{selectedMetadata?.keyLabel ?? 'API Key'}{!keyRequired && ' (optional)'}</label>
+                <label htmlFor="ai-key" className={labelClass}>{selectedMetadata?.keyLabel ?? 'API Key'}{!keyRequired && ' (optional)'}</label>
                 <input
+                  id="ai-key"
                   type="password"
                   value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
+                  onChange={(e) => { setApiKey(e.target.value); setAiMessage(null); }}
                   placeholder={selectedMetadata?.placeholder ?? 'Paste your API key'}
                   className={inputClass}
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className={labelClass}>Model</label>
+                  <label htmlFor="ai-model" className={labelClass}>Model</label>
                   <input
                     type="text"
                     list="ai-model-suggestions"
+                    id="ai-model"
                     value={model}
-                    onChange={(e) => setModel(e.target.value)}
+                    onChange={(e) => { setModel(e.target.value); setAiMessage(null); }}
                     placeholder={selectedMetadata?.defaultModel}
                     className={inputClass}
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>Intelligence Mode model</label>
+                  <label htmlFor="ai-advanced-model" className={labelClass}>Intelligence Mode model</label>
                   <input
                     type="text"
                     list="ai-model-suggestions"
+                    id="ai-advanced-model"
                     value={advancedModel}
-                    onChange={(e) => setAdvancedModel(e.target.value)}
+                    onChange={(e) => { setAdvancedModel(e.target.value); setAiMessage(null); }}
                     placeholder={selectedMetadata?.defaultAdvancedModel}
                     className={inputClass}
                   />
                 </div>
                 <datalist id="ai-model-suggestions">
-                  {selectedMetadata?.suggestedModels.map(id => <option key={id} value={id} />)}
+                  {(discoveredModels.length ? discoveredModels : selectedMetadata?.suggestedModels ?? []).map(id => <option key={id} value={id} />)}
                 </datalist>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">Pick a suggestion or type any model ID the provider offers. Leave empty to use the default shown.</p>
               {requiresBaseUrl && (
                 <div>
-                  <label className={labelClass}>Base URL (optional)</label>
+                  <label htmlFor="ai-base-url" className={labelClass}>Base URL (optional)</label>
                   <input
                     type="text"
+                    id="ai-base-url"
                     value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
+                    onChange={(e) => { setBaseUrl(e.target.value); setDiscoveredModels([]); setAiMessage(null); }}
                     placeholder={selectedMetadata?.defaultBaseUrl}
                     className={inputClass}
                   />
@@ -283,33 +343,47 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               {selectedMetadata?.notes && (
                 <p className="text-xs text-gray-500 dark:text-gray-400">{selectedMetadata.notes}</p>
               )}
-              <div className="bg-gray-100 dark:bg-gray-900 p-4 rounded-lg flex items-center justify-between">
-                <span className="font-medium text-gray-800 dark:text-gray-200">Connection Status:</span>
-                {isApiKeyReady ? (
-                  <span className="text-green-600 dark:text-green-400 font-semibold px-2 py-1 bg-green-100 dark:bg-green-900 rounded-md">Configured</span>
-                ) : (
-                  <span className="text-yellow-600 dark:text-yellow-400 font-semibold px-2 py-1 bg-yellow-100 dark:bg-yellow-900 rounded-md">Missing</span>
+              <div className="flex flex-wrap gap-2">
+                {localProvider && (
+                  <button type="button" onClick={() => void handleAiAction('find')} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 disabled:opacity-50">
+                    {aiAction === 'find' ? 'Looking for models…' : 'Find models'}
+                  </button>
                 )}
+                {selectedProvider === 'ollama' && (
+                  <button type="button" onClick={() => void handleAiAction('download')} className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 disabled:opacity-50">
+                    {aiAction === 'download' ? 'Downloading…' : 'Download starter model'}
+                  </button>
+                )}
+                <button type="button" onClick={() => void handleAiAction('test')} disabled={!canSaveApi}
+                  className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 disabled:opacity-50">
+                  {aiAction === 'test' ? 'Testing…' : 'Test connection'}
+                </button>
               </div>
-            </div>
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                {localProvider
+                  ? 'Keep the server running. Use a localhost address to keep requests on this computer. Local connections are simplest in the desktop app.'
+                  : 'The connection test sends one sample request. Your provider may count it toward usage.'}
+              </p>
+              {aiMessage && <p role="status" className="text-sm text-gray-800 dark:text-gray-200">{aiMessage}</p>}
+              {apiConfig?.provider === selectedProvider && isApiKeyReady && <p className="text-xs text-gray-500 dark:text-gray-400">This provider is saved.</p>}
+            </fieldset>
           </section>
 
           <section>
-            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Transcription Provider</h3>
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Cloud transcription</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-              <strong>Desktop app: you don&apos;t need this.</strong> The Live tab transcribes on this computer: free, unlimited, no account, and audio never leaves the device (speech models download once, about 1.2 GB).
-              Cloud free tiers all have limits (Groq: hourly/daily caps; Deepgram: one-time credit). If you hit them, switch to on-device, or use a paid option (OpenAI preset or Deepgram, pay per minute). Cloud providers receive your audio.
+              On desktop, use <strong>Record a lecture</strong> to install the speech models once and transcribe offline. These settings apply when you switch to a cloud provider or record in the web or mobile app.
             </p>
             {deviceTier !== undefined && (
               <p className="text-sm mb-3 text-gray-700 dark:text-gray-300" role="status">
                 <span className="font-medium">This computer: </span>
-                {deviceTier === null ? 'speed not measured yet (open the Live tab once).'
+                {deviceTier === null ? 'speed not measured yet. Install the speech models in the recorder.'
                   : deviceTier === 'below-floor' ? 'too slow for live text; it records first and transcribes after you stop (still free and unlimited).'
                   : `can transcribe live on its own (${deviceTier === 'high' ? 'fast' : 'standard'}).`}
               </p>
             )}
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Powers live lecture transcription. Separate from your AI provider. Whisper is free: use Groq&apos;s free tier, or run an open-source Whisper server on your own computer.
+              Transcription providers receive your audio. The AI provider above handles study materials separately.
             </p>
             <div className="space-y-4">
               <div>
@@ -575,10 +649,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
             <button
               onClick={handleSave}
-              disabled={!canSaveApi || isSaving}
+              disabled={!canSaveApi || isSaving || !!aiAction}
               className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isSaving ? 'Saving...' : 'Save API Settings'}
+              {isSaving ? 'Saving...' : 'Save AI settings'}
             </button>
           </div>
         </div>

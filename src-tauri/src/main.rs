@@ -1,7 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod secure_storage;
+mod study_workflows;
 mod transcription;
+mod transcript_import;
+mod transcript_time;
+mod workflow_commands;
 
 use tauri::webview::{PermissionKind, PermissionResponse};
 
@@ -33,6 +37,10 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            workflow_commands::parse_transcript_import,
+            workflow_commands::format_study_context,
+            workflow_commands::parse_study_flashcards,
+            workflow_commands::valid_study_session_indices,
             secure_storage::secure_save_api_config,
             secure_storage::secure_load_api_config,
             secure_storage::secure_clear_api_config,
@@ -46,6 +54,7 @@ fn main() {
             transcription::commands::recording_stop,
             transcription::commands::recording_status,
             transcription::commands::recording_attach,
+            transcription::commands::recording_archive_ready,
             transcription::commands::recording_finalize,
             transcription::commands::transcription_tier
         ])

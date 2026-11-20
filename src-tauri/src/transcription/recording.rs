@@ -151,18 +151,28 @@ fn system_audio_device() -> Result<cpal::Device, String> {
     cpal::default_host().default_output_device().ok_or_else(|| "system_audio_unavailable".into())
 }
 
-fn build_stream<T>(device: &cpal::Device, config: cpal::StreamConfig, sender: Sender<Vec<f32>>) -> Result<cpal::Stream, String>
+fn build_stream<T>(
+    device: &cpal::Device,
+    config: cpal::StreamConfig,
+    sender: Sender<Vec<f32>>,
+    events: EventSink,
+) -> Result<cpal::Stream, String>
 where
     T: SizedSample,
     f32: FromSample<T>,
 {
+    let reported_error = AtomicBool::new(false);
     device
         .build_input_stream::<T, _, _>(
             config,
             move |data: &[T], _| {
                 let _ = sender.send(data.iter().map(|s| s.to_sample::<f32>()).collect());
             },
-            |_| {},
+            move |_| {
+                if !reported_error.swap(true, Ordering::Relaxed) {
+                    emit(&events, json!({ "type": "error", "code": "capture_interrupted" }));
+                }
+            },
             None,
         )
         .map_err(|_| "capture_failed".to_string())
@@ -259,6 +269,7 @@ fn worker(receiver: Receiver<Vec<f32>>, mut ctx: WorkerContext) {
     let mut level_sum = 0.0f32;
     let mut level_count = 0usize;
     let mut last_level = Instant::now();
+    let mut archive_failed = false;
     while !ctx.stop.load(Ordering::SeqCst) {
         let Ok(chunk) = receiver.recv_timeout(Duration::from_millis(200)) else { continue };
         let samples = resampler.process(&to_mono(&chunk, ctx.channels));
@@ -268,6 +279,7 @@ fn worker(receiver: Receiver<Vec<f32>>, mut ctx: WorkerContext) {
         // 1. Archive first: this is the copy that must never be lost.
         if ctx.archive.push(&samples).is_err() {
             emit(&ctx.events, json!({ "type": "error", "code": "archive_write_failed" }));
+            archive_failed = true;
             break;
         }
         // 2. Live recognition, only while it keeps up.
@@ -296,8 +308,13 @@ fn worker(receiver: Receiver<Vec<f32>>, mut ctx: WorkerContext) {
         }
     }
     // Drain what the capture callback already queued, then close the archive cleanly.
-    for chunk in receiver.try_iter() {
-        let _ = ctx.archive.push(&resampler.process(&to_mono(&chunk, ctx.channels)));
+    if !archive_failed {
+        for chunk in receiver.try_iter() {
+            if ctx.archive.push(&resampler.process(&to_mono(&chunk, ctx.channels))).is_err() {
+                emit(&ctx.events, json!({ "type": "error", "code": "archive_write_failed" }));
+                break;
+            }
+        }
     }
     let manifest = ctx.archive.finish();
     if let Some(mut link) = ctx.asr.take() {
@@ -325,6 +342,14 @@ pub fn valid_id(id: &str) -> bool {
 
 pub fn recordings_dir(app_data: &Path, asset_id: &str) -> PathBuf {
     app_data.join("recordings").join(asset_id)
+}
+
+pub fn archive_ready(app_data: &Path, asset_id: &str) -> Result<bool, String> {
+    if !valid_id(asset_id) {
+        return Err("invalid_id".into());
+    }
+    Ok(super::archive::read_manifest(&recordings_dir(app_data, asset_id))
+        .is_ok_and(|manifest| !manifest.segments.is_empty()))
 }
 
 pub fn start(
@@ -359,10 +384,10 @@ pub fn start(
 
     let (sender, receiver) = mpsc::channel();
     let stream = match supported.sample_format() {
-        SampleFormat::F32 => build_stream::<f32>(&device, config, sender),
-        SampleFormat::I16 => build_stream::<i16>(&device, config, sender),
-        SampleFormat::I32 => build_stream::<i32>(&device, config, sender),
-        SampleFormat::U16 => build_stream::<u16>(&device, config, sender),
+        SampleFormat::F32 => build_stream::<f32>(&device, config, sender, events.clone()),
+        SampleFormat::I16 => build_stream::<i16>(&device, config, sender, events.clone()),
+        SampleFormat::I32 => build_stream::<i32>(&device, config, sender, events.clone()),
+        SampleFormat::U16 => build_stream::<u16>(&device, config, sender, events.clone()),
         _ => Err("unsupported_sample_format".into()),
     }?;
     stream.play().map_err(|_| "capture_failed")?;
@@ -529,6 +554,19 @@ mod tests {
     #[test]
     fn downmixes_to_mono() {
         assert_eq!(to_mono(&[1.0, 0.0, 0.5, 0.5], 2), vec![0.5, 0.5]);
+    }
+
+    #[test]
+    fn retry_requires_saved_audio_and_a_valid_asset_id() {
+        let dir = std::env::temp_dir().join(format!("intellinote-retry-test-{}", std::process::id()));
+        assert!(archive_ready(&dir, "../outside").is_err());
+        assert!(!archive_ready(&dir, "asset1").unwrap());
+        let mut writer = ArchiveWriter::create(&recordings_dir(&dir, "asset1"), RecordingKey::for_tests(1)).unwrap();
+        assert!(!archive_ready(&dir, "asset1").unwrap());
+        writer.push(&[0.25; 32]).unwrap();
+        writer.finish().unwrap();
+        assert!(archive_ready(&dir, "asset1").unwrap());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

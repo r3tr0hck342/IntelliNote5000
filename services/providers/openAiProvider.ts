@@ -1,10 +1,10 @@
 import { ChatMessage } from '../../types';
-import { formatContext, getPromptForMode, getFlashcardPrompt, getTagPrompt, getChatSystemPrompt, getEditPrompt } from '../aiPrompts';
+import { formatStudyContext, getPromptForMode, getFlashcardPrompt, getTagPrompt, getChatSystemPrompt, getEditPrompt } from '../aiPrompts';
 import { AiProvider, ProviderMetadata, ProviderRuntimeOptions, AiChatChunk } from './types';
 import { ApiConfig, ProviderId } from '../../types/ai';
 import { mapProviderError } from './errors';
 import { httpFetch } from '../../utils/http';
-import { dryRunMessage, parseFlashcards, parseTags, resolveModel } from './shared';
+import { dryRunMessage, parseStudyFlashcards, parseTags, resolveModel } from './shared';
 
 // Every provider here speaks the OpenAI Chat Completions API; only the defaults differ.
 export const openAiMetadata: ProviderMetadata = {
@@ -34,9 +34,10 @@ export const openRouterMetadata: ProviderMetadata = {
     isFree: true,
     requiresApiKey: true,
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
-    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
-    defaultAdvancedModel: 'deepseek/deepseek-chat-v3-0324:free',
+    defaultModel: 'openrouter/free',
+    defaultAdvancedModel: 'openrouter/free',
     suggestedModels: [
+        'openrouter/free',
         'meta-llama/llama-3.3-70b-instruct:free',
         'deepseek/deepseek-chat-v3-0324:free',
         'qwen/qwen-2.5-72b-instruct:free',
@@ -52,7 +53,6 @@ export const ollamaMetadata: ProviderMetadata = {
     docsUrl: 'https://ollama.com/library',
     keyLabel: 'API Key (not needed)',
     placeholder: 'Leave empty',
-    notes: 'Install Ollama, then run e.g. `ollama pull llama3.2`. For the web version, start Ollama with OLLAMA_ORIGINS=* so the browser may call it.',
     supportsLiveTranscription: false,
     allowsCustomBaseUrl: true,
     isFree: true,
@@ -61,6 +61,23 @@ export const ollamaMetadata: ProviderMetadata = {
     defaultModel: 'llama3.2',
     defaultAdvancedModel: 'llama3.1:8b',
     suggestedModels: ['llama3.2', 'llama3.1:8b', 'qwen2.5:7b', 'gemma2:9b', 'mistral'],
+};
+
+export const llamaCppMetadata: ProviderMetadata = {
+    id: 'llama-cpp',
+    label: 'llama.cpp (local)',
+    description: 'Generate study materials from a GGUF model running on your computer.',
+    docsUrl: 'https://github.com/ggml-org/llama.cpp/tree/master/tools/server',
+    keyLabel: 'Server API key',
+    placeholder: 'Leave empty unless your server requires a key',
+    supportsLiveTranscription: false,
+    allowsCustomBaseUrl: true,
+    isFree: true,
+    requiresApiKey: false,
+    defaultBaseUrl: 'http://127.0.0.1:8080/v1',
+    defaultModel: 'lecture-ai',
+    defaultAdvancedModel: 'lecture-ai',
+    suggestedModels: ['lecture-ai'],
 };
 
 export const mistralMetadata: ProviderMetadata = {
@@ -149,7 +166,7 @@ export const createOpenAiCompatibleProvider = (config: ApiConfig, metadata: Prov
         metadata,
         rawConfig: config,
         processTranscript: async (transcript, mode, handouts, options) => {
-            const prompt = getPromptForMode(mode, formatContext(transcript, handouts));
+            const prompt = getPromptForMode(mode, await formatStudyContext(transcript, handouts));
             if (options?.dryRun) return dryRunMessage(metadata.label, `process ${mode}`, prompt.length);
             return complete([
                 { role: 'system', content: 'You are an expert academic assistant.' },
@@ -158,7 +175,7 @@ export const createOpenAiCompatibleProvider = (config: ApiConfig, metadata: Prov
         },
         generateFlashcards: async (transcript, handouts, options) => {
             const count = options?.count ?? 10;
-            const prompt = `${getFlashcardPrompt(formatContext(transcript, handouts), count)}
+            const prompt = `${getFlashcardPrompt(await formatStudyContext(transcript, handouts), count)}
 
 Return only a JSON array of objects with keys "front" and "back".`;
             if (options?.dryRun) {
@@ -171,10 +188,10 @@ Return only a JSON array of objects with keys "front" and "back".`;
                 { role: 'system', content: 'You create excellent study flashcards.' },
                 { role: 'user', content: prompt },
             ], options);
-            return parseFlashcards(text);
+            return await parseStudyFlashcards(text);
         },
         generateTags: async (transcript, handouts, options) => {
-            const prompt = `${getTagPrompt(formatContext(transcript, handouts))}
+            const prompt = `${getTagPrompt(await formatStudyContext(transcript, handouts))}
 
 Return only a valid JSON array.`;
             if (options?.dryRun) return ['dry-run', `${providerId}:${prompt.length}`];
@@ -187,7 +204,7 @@ Return only a valid JSON array.`;
         },
         generateChatStream: async function* (history, message, transcript, handouts, options): AsyncGenerator<AiChatChunk> {
             const messages: OpenAiMessage[] = [
-                { role: 'system', content: getChatSystemPrompt(formatContext(transcript, handouts)) },
+                { role: 'system', content: getChatSystemPrompt(await formatStudyContext(transcript, handouts)) },
                 ...buildHistory(history),
                 { role: 'user', content: message },
             ];

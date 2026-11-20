@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { finalizeSegment, normalizeImportedTranscript, normalizeTranscriptText, parseTimestampToMs, upsertInterimSegment } from '../utils/transcript.ts';
+import { finalizeSegment, normalizeImportedTranscript, normalizeTranscriptText, parseImportedTranscript, parseTimestampToMs, upsertInterimSegment } from '../utils/transcript.ts';
 
 const createdAt = new Date('2024-01-01T00:00:00Z').toISOString();
 
@@ -51,5 +51,28 @@ const final = {
 const finalized = finalizeSegment(withInterim, final, interim.id);
 assert.equal(finalized.some(segment => !segment.isFinal), false);
 assert.ok(finalized.find(segment => segment.id === 'segment-final'));
+
+const desktopRows = [{ text: 'Native cue', startMs: 1000, endMs: 2000 }];
+Object.defineProperty(globalThis, 'window', {
+  configurable: true,
+  value: {
+    __TAURI__: {},
+    __TAURI_INTERNALS__: {
+      invoke: async (command: string, args: unknown) => {
+        assert.equal(command, 'parse_transcript_import');
+        assert.deepEqual(args, { text: 'Input transcript' });
+        return desktopRows;
+      },
+    },
+  },
+});
+const desktop = await parseImportedTranscript('Input transcript', 'asset-1', createdAt);
+assert.deepEqual(desktop.map(({ text, startMs, endMs }) => ({ text, startMs, endMs })), desktopRows);
+assert.equal(desktop[0].assetId, 'asset-1');
+assert.equal(desktop[0].isFinal, true);
+Reflect.deleteProperty(globalThis, 'window');
+
+const browser = await parseImportedTranscript('Line one\n\nLine two', 'asset-1', createdAt);
+assert.deepEqual(browser.map(segment => segment.text), ['Line one', 'Line two']);
 
 console.log('Transcript pipeline tests passed.');

@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Handout, StudySession } from '../types';
+import { Handout, StudySession, TranscriptSegment } from '../types';
 import { UploadIcon, FileTextIcon, XIcon, MicIcon } from './icons';
 import { parseFile } from '../utils/fileParser';
-import { estimateTranscriptStats, normalizeTranscriptText } from '../utils/transcript';
+import { createId, estimateTranscriptStats, normalizeTranscriptText, parseImportedTranscript } from '../utils/transcript';
 import { isTauri } from '../utils/native';
 import { localEngine, describeTranscriptionError } from '../services/transcription/localEngine';
 import type { Transcript } from '../services/transcription/schema';
@@ -24,9 +24,12 @@ interface ImportPipelineProgress {
 
 interface FileUploadModalProps {
   onClose: () => void;
+  isAiReady: boolean;
   onCreateLecture: (data: {
     title: string;
-    transcript: string;
+    assetId: string;
+    createdAt: string;
+    segments: TranscriptSegment[];
     handouts: Handout[];
     sessionId?: string;
     /** Set when the text came from on-device transcription: keeps word timings and engine info. */
@@ -36,7 +39,7 @@ interface FileUploadModalProps {
   sessions: StudySession[];
 }
 
-const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLecture, sessions }) => {
+const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLecture, sessions, isAiReady }) => {
   const [title, setTitle] = useState('');
   const [transcript, setTranscript] = useState('');
   const [handouts, setHandouts] = useState<Handout[]>([]);
@@ -135,9 +138,9 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
 
   const handleTranscriptFile = (file: File | null) => {
     if (!file) return;
-    const isSupported = file.name.endsWith('.txt') || file.name.endsWith('.md') || file.type.startsWith('text/');
+    const isSupported = file.name.endsWith('.txt') || file.name.endsWith('.md') || /\.(srt|vtt)$/i.test(file.name) || file.type.startsWith('text/');
     if (!isSupported) {
-      alert('Unsupported transcript format. Please upload a .txt or .md file.');
+      alert('Unsupported transcript format. Please upload a .txt, .md, .srt, or .vtt file.');
       return;
     }
     const reader = new FileReader();
@@ -154,9 +157,9 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
     reader.readAsText(file);
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!transcript.trim()) {
-      alert('A transcript is required to use the AI features.');
+      alert('Add a transcript before importing.');
       return;
     }
     setIsImporting(true);
@@ -169,30 +172,34 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
       'test-questions': 'queued',
       flashcards: 'queued',
     });
-    const controller = onCreateLecture({
-      title,
-      transcript,
-      handouts,
-      sessionId: selectedSessionId === 'new' ? undefined : selectedSessionId,
-      transcriptData: deviceTranscript ?? undefined,
-      onProgress: (progress) => {
-        setImportProgress(prev => ({ ...prev, [progress.stage]: progress.status }));
-        if (progress.status === 'error' && progress.error) {
-          setImportError(progress.error);
-        }
-      },
-    });
-    setImportController(controller);
-    controller.done
-      .then(() => {
-        setImportComplete(true);
-      })
-      .catch((error: Error) => {
-        setImportError(error.message);
-      })
-      .finally(() => {
-        setIsImporting(false);
+    const assetId = createId('asset');
+    const createdAt = new Date().toISOString();
+    try {
+      const segments = deviceTranscript ? [] : await parseImportedTranscript(transcript, assetId, createdAt);
+      const controller = onCreateLecture({
+        title,
+        assetId,
+        createdAt,
+        segments,
+        handouts,
+        sessionId: selectedSessionId === 'new' ? undefined : selectedSessionId,
+        transcriptData: deviceTranscript ?? undefined,
+        onProgress: (progress) => {
+          setImportProgress(prev => ({ ...prev, [progress.stage]: progress.status }));
+          if (progress.status === 'error' && progress.error) {
+            setImportError(progress.error);
+          }
+        },
       });
+      setImportController(controller);
+      await controller.done;
+      setImportComplete(true);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Transcript import failed.');
+    } finally {
+      setImportController(null);
+      setIsImporting(false);
+    }
   };
   
   const removeHandout = (index: number) => {
@@ -314,7 +321,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Transcript File (.txt, .md)</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Transcript File (.txt, .md, .srt, .vtt)</label>
             <div className="flex items-center space-x-3">
               <label className="cursor-pointer text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 font-medium">
                 Choose file
@@ -322,7 +329,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
                   type="file"
                   className="sr-only"
                   onChange={(e) => handleTranscriptFile(e.target.files?.[0] ?? null)}
-                  accept=".txt,.md,text/plain,text/markdown"
+                  accept=".txt,.md,.srt,.vtt,text/plain,text/markdown"
                   disabled={isImporting}
                 />
               </label>
@@ -415,7 +422,9 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
             </div>
           )}
 
-          {(isImporting || importComplete || importError) && (
+          {!isAiReady && importComplete && <p role="status" className="text-sm">Transcript saved. Study materials are available after you connect an AI provider.</p>}
+          {!isAiReady && importError && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{importError}</p>}
+          {isAiReady && (isImporting || importComplete || importError) && (
             <div className="border border-gray-200 dark:border-gray-700 rounded-md p-4 space-y-3">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">AI Import Pipeline</h3>
               <ul className="space-y-2 text-sm">
@@ -439,7 +448,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
           )}
         </div>
 
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex flex-wrap justify-end gap-2">
           <button
             onClick={onClose}
             disabled={isImporting}
@@ -447,7 +456,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
           >
             {importComplete ? 'Close' : 'Cancel'}
           </button>
-          {isImporting && (
+          {isImporting && importController && (
             <button
               onClick={handleCancelPipeline}
               className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-md hover:bg-red-600"
@@ -457,7 +466,7 @@ const FileUploadModal: React.FC<FileUploadModalProps> = ({ onClose, onCreateLect
           )}
           <button
             onClick={handleCreate}
-            disabled={isParsing || !transcript.trim() || isImporting}
+            disabled={isParsing || !transcript.trim() || isImporting || importComplete}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed"
           >
             {isImporting ? 'Importing...' : 'Import Transcript'}

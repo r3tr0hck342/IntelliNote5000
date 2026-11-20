@@ -234,10 +234,19 @@ pub fn recording_attach(state: State<'_, RecordingState>, on_event: Channel<Valu
     }
 }
 
+/// Reports whether a saved recording can be retried.
+#[tauri::command]
+pub fn recording_archive_ready<R: Runtime>(app: AppHandle<R>, asset_id: String) -> Result<bool, String> {
+    recording::archive_ready(&app_data(&app)?, &asset_id)
+}
+
 /// Final pass over a recording's encrypted archive (after stop, or to recover a crashed or
 /// record-only session). Returns the Transcript JSON, validated again in the UI.
 #[tauri::command]
-pub async fn recording_finalize<R: Runtime>(app: AppHandle<R>, asset_id: String, on_event: Channel<Value>) -> Result<Value, String> {
+pub async fn recording_finalize<R: Runtime>(app: AppHandle<R>, state: State<'_, RecordingState>, asset_id: String, on_event: Channel<Value>) -> Result<Value, String> {
+    if state.0.lock().map_err(|_| "state_poisoned")?.is_some() {
+        return Err("already_recording".into());
+    }
     let app_data = app_data(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let key = crate::transcription::crypto::RecordingKey::load_or_create().map_err(|_| "keychain_unavailable")?;

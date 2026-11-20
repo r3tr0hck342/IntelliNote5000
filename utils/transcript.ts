@@ -1,4 +1,5 @@
 import type { TranscriptSegment } from '../types';
+import { desktopWorkflow } from './desktopWorkflow.ts';
 
 export const createId = (prefix: string) => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -186,6 +187,19 @@ export const normalizeImportedTranscript = (text: string, assetId: string, creat
   const inlineSegments = parseInlineTimestampSegments(normalized, assetId, createdAt);
   if (inlineSegments.length > 0) return inlineSegments;
   return segmentByParagraph(normalized, assetId, createdAt);
+};
+
+export const parseImportedTranscript = async (
+  text: string,
+  assetId: string,
+  createdAt: string,
+): Promise<TranscriptSegment[]> => {
+  const segments = await desktopWorkflow<Pick<TranscriptSegment, 'text' | 'startMs' | 'endMs'>[] | null>(
+    'parse_transcript_import', { text }, () => null,
+  );
+  return segments
+    ? segments.map(segment => buildSegment(segment.text, assetId, createdAt, segment.startMs, segment.endMs))
+    : normalizeImportedTranscript(text, assetId, createdAt);
 };
 
 export const upsertInterimSegment = (

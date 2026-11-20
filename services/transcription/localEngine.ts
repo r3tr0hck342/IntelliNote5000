@@ -28,6 +28,14 @@ export const describeTranscriptionError = (code: string): string => {
     case 'audio_corrupt':
     case 'ffmpeg_failed': return 'This file could not be decoded. Try converting it to MP3, M4A, or WAV.';
     case 'network_error': return 'The download was interrupted. Try again: it will resume where it stopped.';
+    case 'already_recording': return 'Stop the current recording before retrying.';
+    case 'recording_empty': return 'No audio was saved for this recording.';
+    case 'recording_missing': return 'The saved audio could not be found.';
+    case 'keychain_unavailable': return 'Unlock your system keychain and allow IntelliNote to access the recording key.';
+    case 'archive_unavailable':
+    case 'archive_write_failed': return 'Audio could not be saved. Check that you have free disk space.';
+    case 'capture_interrupted': return 'The audio input was interrupted. Stop recording to finish processing any saved audio.';
+    case 'capture_failed': return 'Check the selected input and microphone or system audio permissions.';
     case 'sidecar_missing': return 'The on-device transcription component is missing from this install.';
     default: return 'On-device transcription failed. Please try again.';
   }
@@ -47,7 +55,7 @@ export const localEngine: TranscriptionEngine & {
   installModels: (roles: ModelRole[], onProgress: (done: number, total: number) => void) => Promise<void>;
 } = {
   startStream(_opts: StreamOptions): StreamHandle {
-    throw new Error('Live on-device transcription is not available yet.');
+    throw new Error('Use the desktop recorder for native live transcription.');
   },
 
   async capabilities(): Promise<EngineCaps> {

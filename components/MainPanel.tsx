@@ -6,6 +6,7 @@ import { DownloadIcon, NoteIcon, ArrowLeftIcon, ArrowRightIcon, RefreshIcon, Pap
 import { parseFile } from '../utils/fileParser';
 import ReactQuill from 'react-quill-new';
 import TurndownService from 'turndown';
+import type { RecordingTarget } from './NativeLiveRecorder';
 import { isTauri, nativeSave, nativeSaveBytes, triggerBrowserDownload } from '../utils/native';
 import { getRecording, hasRecording } from '../utils/localDb';
 import { pushToast } from '../utils/toastStore';
@@ -73,6 +74,8 @@ const FlashcardViewer: React.FC<{ cards: Flashcard[] }> = ({ cards }) => {
 
 
 interface MainPanelProps {
+  initialTab: 'transcript' | 'notes';
+  onRetryTranscript?: (target: RecordingTarget) => void;
   session: StudySession;
   updateSession: (id: string, updates: Partial<StudySession>) => void;
   isMobile: boolean;
@@ -98,19 +101,35 @@ const TABS: { id: ActiveTab; label: string; icon: React.FC<{className?: string}>
 
 const ApiKeyBanner = ({ onOpenSettings }: { onOpenSettings: () => void; }) => (
     <div className="bg-yellow-100 dark:bg-yellow-900 border-b border-yellow-300 dark:border-yellow-700 p-3 text-center text-sm text-yellow-800 dark:text-yellow-200 flex-shrink-0">
-        AI features are disabled. Please{' '}
+        Transcripts are available without an AI provider. To generate study materials,{' '}
         <button onClick={onOpenSettings} className="font-bold underline hover:text-yellow-900 dark:hover:text-yellow-100">
-            configure your API key
+            open AI settings
         </button>
-        {' '}to continue.
+
     </div>
 );
 
 
-const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile, onToggleSidebar, isApiKeyReady, onOpenSettings, theme, activeAssetId, onSelectAsset }) => {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
+const MainPanel: React.FC<MainPanelProps> = ({ session, initialTab, onRetryTranscript, updateSession, isMobile, onToggleSidebar, isApiKeyReady, onOpenSettings, theme, activeAssetId, onSelectAsset }) => {
+  const [activeTab, setActiveTab] = useState<ActiveTab>(initialTab);
   const [isLoading, setIsLoading] = useState(false);
   const activeAsset = session.assets.find(asset => asset.id === activeAssetId) ?? session.assets[0] ?? null;
+  const retryAssetId = onRetryTranscript && activeAsset?.sourceType === 'live'
+    && activeAsset.segments.every(segment => segment.modelVersion?.startsWith('nemotron'))
+    ? activeAsset.id : null;
+  const [recoverableAssetId, setRecoverableAssetId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!retryAssetId) return;
+    let cancelled = false;
+    import('@tauri-apps/api/core').then(({ invoke }) =>
+      invoke<boolean>('recording_archive_ready', { assetId: retryAssetId })
+    ).then(ready => {
+      if (!cancelled) setRecoverableAssetId(ready ? retryAssetId : null);
+    }).catch(() => {
+      if (!cancelled) setRecoverableAssetId(null);
+    });
+    return () => { cancelled = true; };
+  }, [retryAssetId]);
   const [activeAssetHasAudio, setActiveAssetHasAudio] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -171,8 +190,6 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
   const [useIntelligenceMode, setUseIntelligenceMode] = useState(false);
 
   useEffect(() => {
-    // Reset to notes tab when session/asset changes
-    setActiveTab('notes');
     setEditedTranscript(activeAsset ? buildTranscriptText(activeAsset.segments, true) : '');
     setSaveStatus('saved');
     setEditingField(null);
@@ -724,7 +741,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
         const transcriptEditorClassName = "w-full h-full p-4 rounded-md resize-none font-mono text-sm leading-relaxed absolute inset-0";
 
         return (
-            <div className="p-6 overflow-hidden h-full flex flex-col">
+            <div className="p-3 sm:p-6 overflow-hidden h-full flex flex-col">
                 {topicsModalOpen && (
                     <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
                         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg">
@@ -738,10 +755,10 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
                 )}
                 <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-gray-100 dark:bg-gray-900 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
                     <div>
-                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Session Assets</h3>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Select a live recording or imported transcript.</p>
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Recordings and imports</h3>
                     </div>
                     <select
+                        aria-label="Recording or imported transcript"
                         value={activeAsset?.id ?? ''}
                         onChange={(e) => onSelectAsset(e.target.value || null)}
                         className="border border-gray-300 dark:border-gray-700 rounded-md p-2 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200"
@@ -753,6 +770,12 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
                             </option>
                         ))}
                     </select>
+                    {retryAssetId && recoverableAssetId === retryAssetId && (
+                        <button onClick={() => onRetryTranscript?.({ sessionId: session.id, assetId: retryAssetId })}
+                            className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white">
+                            Retry final transcript
+                        </button>
+                    )}
                     {activeAssetHasAudio && (
                         <button
                             onClick={handleDownloadAudio}
@@ -1070,7 +1093,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
         <header className="flex-shrink-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 p-4 flex justify-between items-center">
             <div className="flex items-center min-w-0">
                 {isMobile && (
-                     <button onClick={onToggleSidebar} className="p-1 mr-4 -ml-2 text-gray-600 dark:text-gray-300">
+                     <button onClick={onToggleSidebar} aria-label="Open sessions" className="p-1 mr-4 -ml-2 text-gray-600 dark:text-gray-300">
                         <MenuIcon className="w-6 h-6" />
                     </button>
                 )}
@@ -1113,7 +1136,7 @@ const MainPanel: React.FC<MainPanelProps> = ({ session, updateSession, isMobile,
                         Intelligence Mode
                     </label>
                 </div>
-                <button onClick={handleExport} disabled={!canExport} className="flex items-center px-3 py-2 text-sm font-medium text-gray-800 dark:text-white bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                <button onClick={handleExport} aria-label="Export session" disabled={!canExport} className="flex items-center px-3 py-2 text-sm font-medium text-gray-800 dark:text-white bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed">
                     <DownloadIcon className="w-5 h-5 md:mr-2" />
                     <span className="hidden md:inline">Export</span>
                 </button>

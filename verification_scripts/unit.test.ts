@@ -1,3 +1,4 @@
+import { downloadOllamaModel, findLocalModels } from '../services/providers/localSetup';
 import assert from 'node:assert/strict';
 import { upsertInterimSegment, finalizeSegment, mergeFinalSegments } from '../utils/transcript.ts';
 import { migrateLegacyLectures, migratePersistedSessions, getSessionSchemaVersion } from '../utils/sessionStorage.ts';
@@ -336,6 +337,33 @@ const testModelParsingAndResolution = () => {
   assert.equal(resolveModel({ provider: 'openai', apiKey: 'k', advancedModel: 'o3' }, meta, { useIntelligenceMode: true }), 'o3');
 };
 
+const testLocalAiSetup = async () => {
+  await withMockFetch(
+    (url) => url.endsWith('/models')
+      ? { data: [{ id: 'local-gguf' }, { id: 'local-gguf' }, { id: null }] }
+      : url.endsWith('/api/pull')
+        ? { status: 'success' }
+        : { choices: [{ message: { content: 'Local notes' } }] },
+    async (calls) => {
+      assert.deepEqual(await findLocalModels('http://127.0.0.1:8080/v1/', ''), ['local-gguf']);
+      assert.equal(calls[0].url, 'http://127.0.0.1:8080/v1/models');
+      await assert.rejects(() => findLocalModels('https://example.org/v1', ''), /local server URL/);
+      await downloadOllamaModel('http://localhost:11434/v1', '', 'llama3.2');
+      assert.equal(calls[1].url, 'http://localhost:11434/api/pull');
+      assert.deepEqual(JSON.parse(String(calls[1].init.body)), { model: 'llama3.2', stream: false });
+
+      const llama = createProvider({ provider: 'llama-cpp', apiKey: '', model: 'local-gguf' });
+      assert.equal(isApiConfigReady(llama.rawConfig), true);
+      assert.equal(await llama.processTranscript(transcript, GenerationMode.Notes, [], { useIntelligenceMode: true }), 'Local notes');
+      assert.equal(calls[2].url, 'http://127.0.0.1:8080/v1/chat/completions');
+      assert.equal(JSON.parse(String(calls[2].init.body)).model, 'local-gguf');
+      assert.equal(headerValue(calls[2].init, 'authorization'), null);
+      assert.equal(PROVIDER_METADATA.openrouter.defaultModel, 'openrouter/free');
+      assert.equal(PROVIDER_METADATA.openrouter.defaultAdvancedModel, 'openrouter/free');
+    },
+  );
+};
+
 const testReadiness = () => {
   assert.equal(isApiConfigReady({ provider: 'ollama', apiKey: '' }), true, 'Ollama needs no key');
   assert.equal(isApiConfigReady({ provider: 'openai', apiKey: '  ' }), false);
@@ -489,6 +517,7 @@ const run = async () => {
   testModelParsingAndResolution();
   testReadiness();
   await testOpenAiCompatibleRouting();
+  await testLocalAiSetup();
   await testAnthropicProvider();
   await testWhisperProvider();
   await testEndpointSafetyAndWhisperParsing();

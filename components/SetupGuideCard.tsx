@@ -15,8 +15,16 @@ const SetupGuideCard: React.FC<{ guide: SetupGuide }> = ({ guide }) => (
       <span className="font-semibold">How to set this up</span>
       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${COST_STYLE[guide.cost]}`}>{guide.cost}</span>
     </div>
+    {guide.access && <p className="mb-2">{guide.access}</p>}
     <ol className="list-decimal ml-5 space-y-1">
-      {guide.steps.map(step => <li key={step}>{step}</li>)}
+      {guide.steps.map((step, index) => (
+        <li key={step}>
+          {step}
+          {guide.command && guide.commandAfterStep === index + 1 && (
+            <pre className="mt-1 whitespace-pre-wrap break-words rounded bg-gray-100 p-2 dark:bg-gray-900"><code>{guide.command}</code></pre>
+          )}
+        </li>
+      ))}
     </ol>
     <button type="button" onClick={() => void openExternal(guide.keyUrl)}
       className="mt-2 text-indigo-600 dark:text-indigo-400 font-medium hover:underline">

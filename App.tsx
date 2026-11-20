@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import MainPanel from './components/MainPanel';
 import LiveNoteTaker from './components/LiveNoteTaker';
-import NativeLiveRecorder from './components/NativeLiveRecorder';
+import NativeLiveRecorder, { type RecordingTarget } from './components/NativeLiveRecorder';
 import { isTauri } from './utils/native';
 import FileUploadModal from './components/FileUploadModal';
 import SettingsModal from './components/SettingsModal';
@@ -44,6 +44,10 @@ const getInitialTheme = (): 'light' | 'dark' => {
 
 
 const App: React.FC = () => {
+  const [sessionsReady, setSessionsReady] = useState(false);
+  const [nativeBusy, setNativeBusy] = useState(false);
+  const [recoveryTarget, setRecoveryTarget] = useState<RecordingTarget | null>(null);
+  const [openTranscript, setOpenTranscript] = useState(false);
   const [sessions, setSessions] = useState<StudySession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeAssetId, setActiveAssetId] = useState<string | null>(null);
@@ -103,6 +107,7 @@ const App: React.FC = () => {
         // Set before setSessions so the save effect never writes the initial empty list over stored data.
         sessionsLoadedRef.current = true;
         setSessions(storedSessions);
+        setSessionsReady(true);
         if (storedSessions.length > 0) {
           logEvent('info', 'Sessions loaded', { count: storedSessions.length });
         }
@@ -214,6 +219,7 @@ const App: React.FC = () => {
   );
 
   const handleNewLiveLecture = () => {
+    setRecoveryTarget(null);
     setCurrentView(AppView.Live);
     setActiveSessionId(null);
     setActiveAssetId(null);
@@ -451,13 +457,13 @@ const App: React.FC = () => {
       assets: [],
       handouts: [],
       organizedNotes: null,
-      organizedNotesStatus: 'generating',
+      organizedNotesStatus: 'idle',
       studyGuide: null,
       testQuestions: null,
       flashcards: null,
       tags: [],
       suggestedTags: [],
-      tagsStatus: 'generating',
+      tagsStatus: 'idle',
       chatHistory: [],
     };
     setSessions(prev => [newSession, ...prev]);
@@ -510,7 +516,7 @@ const App: React.FC = () => {
         return { ...session, assets, updatedAt: new Date().toISOString() };
       })
     );
-    if (hasFinalUpdate) {
+    if (hasFinalUpdate && isApiKeyReady) {
       const tracker = autoGenerationTrackerRef.current[sessionId] ?? { lastRunAt: 0, pendingFinals: 0 };
       tracker.pendingFinals += 1;
       const now = Date.now();
@@ -525,21 +531,19 @@ const App: React.FC = () => {
         autoGenerationTrackerRef.current[sessionId] = tracker;
       }
     }
-  }, [autoGenerationConfig.debounceMs, autoGenerationConfig.finalSegmentBatchSize, autoGenerationConfig.minIntervalMs, scheduleAutoGeneration]);
+  }, [autoGenerationConfig.debounceMs, autoGenerationConfig.finalSegmentBatchSize, autoGenerationConfig.minIntervalMs, isApiKeyReady, scheduleAutoGeneration]);
   
   const handleUpload = () => {
     setIsUploadModalOpen(true);
     if(isMobile) setIsSidebarOpen(false);
   };
 
-  const handleCreateLectureFromFile = useCallback((data: { title: string; transcript: string; handouts: Handout[]; sessionId?: string; transcriptData?: Transcript; onProgress?: (progress: ImportPipelineProgress) => void }) => {
-    const now = new Date();
+  const handleCreateLectureFromFile = useCallback((data: { title: string; assetId: string; createdAt: string; segments: TranscriptSegment[]; handouts: Handout[]; sessionId?: string; transcriptData?: Transcript; onProgress?: (progress: ImportPipelineProgress) => void }) => {
     const sessionId = data.sessionId || handleCreateSession(data.title, '');
-    const assetId = createId('asset');
-    const createdAt = now.toISOString();
+    const { assetId, createdAt } = data;
     const segments = data.transcriptData
       ? toTranscriptSegments(data.transcriptData, assetId, createdAt)
-      : normalizeImportedTranscript(data.transcript, assetId, createdAt);
+      : data.segments;
     const asset: LectureAsset = {
       id: assetId,
       sessionId,
@@ -560,11 +564,14 @@ const App: React.FC = () => {
         updatedAt: createdAt,
       };
     }));
+    setOpenTranscript(false);
     setActiveSessionId(sessionId);
     setActiveAssetId(assetId);
     setCurrentView(AppView.Note);
-    return queueImportPipeline(sessionId, data.onProgress);
-  }, [handleCreateSession, queueImportPipeline]);
+    return isApiKeyReady
+      ? queueImportPipeline(sessionId, data.onProgress)
+      : { cancel: () => {}, done: Promise.resolve() };
+  }, [handleCreateSession, isApiKeyReady, queueImportPipeline]);
 
   const handleDryRunImportPipeline = useCallback(async () => {
     const createdAt = new Date().toISOString();
@@ -650,8 +657,15 @@ const App: React.FC = () => {
   }, [apiConfig?.provider]);
   
   const handleDeleteLecture = useCallback((idToDelete: string) => {
-    if (window.confirm('Are you sure you want to permanently delete this session and all its data?')) {
-        const deletedSession = sessionsRef.current.find(session => session.id === idToDelete);
+    if (nativeBusy) {
+      pushToast({ title: 'Finish the current recording or transcription before deleting a session', variant: 'info' });
+      return;
+    }
+    const deletedSession = sessionsRef.current.find(session => session.id === idToDelete);
+    const archiveNotice = isTauri() && deletedSession?.assets.some(asset => asset.sourceType === 'live')
+      ? ' Any encrypted desktop recording for this session will remain on this device.'
+      : '';
+    if (window.confirm(`Permanently delete this session and its transcript?${archiveNotice}`)) {
         deletedSession?.assets.forEach(asset => {
             deleteRecording(asset.id).catch(error => {
                 logEvent('error', 'Failed to delete recording', { message: error instanceof Error ? error.message : 'Unknown error' });
@@ -667,9 +681,10 @@ const App: React.FC = () => {
             return newSessions;
         });
     }
-  }, [activeSessionId]);
+  }, [activeSessionId, nativeBusy]);
   
   const handleSelectLecture = (id: string) => {
+    setOpenTranscript(false);
     setActiveSessionId(id);
     const session = sessions.find(item => item.id === id);
     setActiveAssetId(session?.assets[0]?.id ?? null);
@@ -729,19 +744,24 @@ const App: React.FC = () => {
     }
   }, [currentView, activeSession]);
 
+  const handleOpenRecordedTranscript = ({ sessionId, assetId }: RecordingTarget) => {
+    setActiveSessionId(sessionId);
+    setActiveAssetId(assetId);
+    setOpenTranscript(true);
+    setCurrentView(AppView.Note);
+  };
+
+  const handleRetryRecordedTranscript = (target: RecordingTarget) => {
+    setUseCloudLive(false);
+    setRecoveryTarget(target);
+    setCurrentView(AppView.Live);
+  };
+
   const renderMainContent = () => {
     switch(currentView) {
         case AppView.Live:
             if (!useCloudLive) {
-                return (
-                    <NativeLiveRecorder
-                        sessions={sessions}
-                        onCreateSession={handleCreateSession}
-                        onCreateLiveAsset={handleCreateAsset}
-                        onTranscriptUpdate={handleTranscriptUpdate}
-                        onUseCloud={() => { localStorage.setItem('intellinote-live-engine', 'cloud'); setUseCloudLive(true); }}
-                    />
-                );
+                return sessionsReady ? null : <p role="status" className="p-4">Recording is available once your session library loads.</p>;
             }
             return (
                 <LiveNoteTaker
@@ -756,18 +776,22 @@ const App: React.FC = () => {
             );
         case AppView.Note:
             if (activeSession) {
-                return <MainPanel theme={theme} session={activeSession} activeAssetId={activeAssetId} onSelectAsset={setActiveAssetId} updateSession={updateSession} isMobile={isMobile} onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} isApiKeyReady={isApiKeyReady} onOpenSettings={() => setIsSettingsModalOpen(true)} />;
+                return <MainPanel key={activeSession.id} initialTab={openTranscript || (!isApiKeyReady && !activeSession.organizedNotes) ? 'transcript' : 'notes'} onRetryTranscript={isTauri() && !nativeBusy ? handleRetryRecordedTranscript : undefined} theme={theme} session={activeSession} activeAssetId={activeAssetId} onSelectAsset={setActiveAssetId} updateSession={updateSession} isMobile={isMobile} onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} isApiKeyReady={isApiKeyReady} onOpenSettings={() => setIsSettingsModalOpen(true)} />;
             }
             return null;
         case AppView.Welcome:
         default: {
             const WelcomeView = () => (
-                 <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800 text-center p-8">
+                 <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800 text-center p-5 sm:p-8">
                     <BrainIcon className="w-24 h-24 text-indigo-500 mb-6" />
-                    <h2 className="text-4xl font-bold text-gray-900 dark:text-white mb-4">Welcome to IntelliNote</h2>
+                    <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white mb-4">Welcome to IntelliNote</h2>
                     <p className="text-gray-600 dark:text-gray-400 max-w-xl">
-                        Your AI-powered lecture assistant. Start a new live note or select a past lecture from the sidebar to begin.
+                        Record a lecture, import a transcript, or open a saved session from the sidebar.
                     </p>
+                    <div className="mt-6 flex flex-wrap justify-center gap-3">
+                        <button onClick={handleNewLiveLecture} className="rounded-md bg-indigo-600 px-4 py-2 font-semibold text-white hover:bg-indigo-700">Record a lecture</button>
+                        <button onClick={handleUpload} className="rounded-md border border-gray-300 px-4 py-2 font-semibold dark:border-gray-600">Import a transcript</button>
+                    </div>
                 </div>
             );
 
@@ -775,7 +799,7 @@ const App: React.FC = () => {
                 return (
                      <div className="flex-1 flex flex-col overflow-hidden">
                         <header className="flex-shrink-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center">
-                            <button onClick={() => setIsSidebarOpen(true)} className="p-1 mr-4">
+                            <button onClick={() => setIsSidebarOpen(true)} aria-label="Open sessions" className="p-1 mr-4">
                                 <MenuIcon className="w-6 h-6" />
                             </button>
                             <h1 className="text-lg font-bold">IntelliNote</h1>
@@ -790,7 +814,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="relative flex h-screen font-sans bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 overflow-hidden">
+    <div className="relative flex h-dvh font-sans bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 overflow-hidden">
       {isMobile && isSidebarOpen && (
         <div
             className="fixed inset-0 bg-black bg-opacity-50 z-20"
@@ -808,6 +832,7 @@ const App: React.FC = () => {
             activeSessionId={activeSessionId}
             onSelectLecture={handleSelectLecture}
             onNewLiveLecture={handleNewLiveLecture}
+            nativeBusy={nativeBusy}
             onUpload={handleUpload}
             onDeleteLecture={handleDeleteLecture}
             isMobile={isMobile}
@@ -815,13 +840,35 @@ const App: React.FC = () => {
             onOpenSettings={() => setIsSettingsModalOpen(true)}
           />
       </div>
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="min-w-0 flex-1 flex flex-col overflow-hidden">
+        {isMobile && currentView === AppView.Live && (
+          <header className="flex shrink-0 items-center gap-3 border-b border-gray-200 p-3 dark:border-gray-700">
+            <button onClick={() => setIsSidebarOpen(true)} aria-label="Open sessions" className="p-1"><MenuIcon className="w-6 h-6" /></button>
+            <span className="font-semibold">IntelliNote</span>
+          </header>
+        )}
+        {!useCloudLive && sessionsReady && (
+          <div className={currentView === AppView.Live ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
+            <NativeLiveRecorder
+              sessions={sessions}
+              visible={currentView === AppView.Live}
+              recoveryTarget={recoveryTarget}
+              onBusyChange={setNativeBusy}
+              onOpenTranscript={handleOpenRecordedTranscript}
+              onCreateSession={handleCreateSession}
+              onCreateLiveAsset={handleCreateAsset}
+              onTranscriptUpdate={handleTranscriptUpdate}
+              onUseCloud={() => { localStorage.setItem('intellinote-live-engine', 'cloud'); setUseCloudLive(true); }}
+            />
+          </div>
+        )}
         {renderMainContent()}
       </main>
       {isUploadModalOpen && (
         <FileUploadModal
             onClose={() => setIsUploadModalOpen(false)}
             onCreateLecture={handleCreateLectureFromFile}
+            isAiReady={isApiKeyReady}
             sessions={sessions}
         />
       )}

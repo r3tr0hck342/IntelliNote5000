@@ -1,6 +1,7 @@
+import { parseStudyFlashcards } from './shared';
 import { GoogleGenAI, Type, type Content } from "@google/genai";
 import { GenerationMode, Flashcard, Handout, TranscriptSegment, ChatMessage, AiEditMode, GroundingSource } from '../../types';
-import { formatContext, getPromptForMode, getFlashcardPrompt, getTagPrompt, getChatSystemPrompt, getEditPrompt } from '../aiPrompts';
+import { formatStudyContext, getPromptForMode, getFlashcardPrompt, getTagPrompt, getChatSystemPrompt, getEditPrompt } from '../aiPrompts';
 import { AiProvider, ProviderMetadata, ProviderRuntimeOptions, AiChatChunk } from './types';
 import { ApiConfig } from '../../utils/apiConfig';
 import { mapProviderError } from './errors';
@@ -39,7 +40,7 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
         rawConfig: config,
         processTranscript: async (transcript: TranscriptSegment[], mode: GenerationMode, handouts: Handout[], options?: ProviderRuntimeOptions): Promise<string> => {
             try {
-                const context = formatContext(transcript, handouts);
+                const context = await formatStudyContext(transcript, handouts);
                 const prompt = getPromptForMode(mode, context);
                 if (options?.dryRun) {
                     return `[Dry Run] Gemini process ${mode} would send ${prompt.length} characters.`;
@@ -58,7 +59,7 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
         generateFlashcards: async (transcript: TranscriptSegment[], handouts: Handout[], options?: ProviderRuntimeOptions): Promise<Flashcard[]> => {
             try {
                 const count = options?.count ?? 10;
-                const context = formatContext(transcript, handouts);
+                const context = await formatStudyContext(transcript, handouts);
                 const prompt = getFlashcardPrompt(context, count);
                 if (options?.dryRun) {
                     return Array.from({ length: count }, (_, index) => ({
@@ -86,15 +87,14 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
                         ...withThinkingConfig(model, options),
                     }
                 });
-                const jsonText = response.text.trim();
-                return JSON.parse(jsonText);
+                return await parseStudyFlashcards(response.text, false);
             } catch (error) {
                 throw mapProviderError(error, 'gemini');
             }
         },
         generateTags: async (transcript: TranscriptSegment[], handouts: Handout[], options?: ProviderRuntimeOptions): Promise<string[]> => {
             try {
-                const context = formatContext(transcript, handouts);
+                const context = await formatStudyContext(transcript, handouts);
                 const prompt = getTagPrompt(context);
                 if (options?.dryRun) {
                     return ['dry-run', `gemini:${prompt.length}`];
@@ -115,7 +115,7 @@ export const createGeminiProvider = (config: ApiConfig): AiProvider => {
         },
         generateChatStream: async function* (history: ChatMessage[], message: string, transcript: TranscriptSegment[], handouts: Handout[], options?: ProviderRuntimeOptions): AsyncGenerator<AiChatChunk> {
             try {
-                const context = formatContext(transcript, handouts);
+                const context = await formatStudyContext(transcript, handouts);
                 if (options?.dryRun) {
                     const payloadLength = [getChatSystemPrompt(context), message, ...history.map(item => item.content)].join('\n').length;
                     yield { textDelta: `[Dry Run] Gemini chat would send ${payloadLength} characters.` };
